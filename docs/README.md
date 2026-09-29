@@ -1,5 +1,7 @@
 # SkyFire 5.4.8 Modules
 
+[![Verify](https://github.com/egavriloff/skyfire-548-modules/actions/workflows/verify.yml/badge.svg)](https://github.com/egavriloff/skyfire-548-modules/actions/workflows/verify.yml)
+
 [English](README.md) | [Русский](README_RU.md)
 
 A collection of modules and scripts I've ported or adapted for
