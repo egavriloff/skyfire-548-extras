@@ -6,8 +6,7 @@ on:
   pull_request:
     paths:
       - "modules/**"
-      - ".ci/ai-review.py"
-      - ".ci/ai-review-prompt.md"
+      - ".ci/ai-review/**"
       - ".github/workflows/ai-review.yml"
 
 permissions:
@@ -17,6 +16,7 @@ jobs:
   review:
     name: Review modules
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
     env:
       AI_DIR: ${{ github.workspace }}/.ai
@@ -102,4 +102,4 @@ jobs:
 
       - name: Run AI review
         run: |
-          python3 .ci/ai-review.py
+          python3 .ci/ai-review/review.py

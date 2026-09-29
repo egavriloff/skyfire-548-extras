@@ -2,9 +2,11 @@ from pathlib import Path
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 MODULES = ROOT / "modules"
-PROMPT_FILE = ROOT / ".ci" / "ai-review-prompt.md"
+
+AI_REVIEW_DIR = ROOT / ".ci" / "ai-review"
+PROMPT_FILE = AI_REVIEW_DIR / "prompt.md"
 
 AI_DIR = ROOT / ".ai"
 MODEL = AI_DIR / "qwen2.5-coder-3b-instruct-q4_k_m.gguf"
@@ -25,6 +27,10 @@ ALLOWED_SUFFIXES = {
 }
 
 MAX_FILE_SIZE = 100_000
+MAX_OUTPUT_TOKENS = 768
+CONTEXT_SIZE = 16_384
+THREADS = 4
+REVIEW_TIMEOUT = 300
 
 
 def collect_module(module: Path) -> str:
@@ -85,21 +91,30 @@ The following are the complete reviewable files from this module.
         "-p",
         prompt,
         "-n",
-        "1200",
+        str(MAX_OUTPUT_TOKENS),
         "-c",
-        "16384",
+        str(CONTEXT_SIZE),
         "-t",
-        "4",
+        str(THREADS),
         "--temp",
         "0.1",
         "--no-display-prompt",
     ]
 
-    result = subprocess.run(
-        command,
-        cwd=ROOT,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            text=True,
+            timeout=REVIEW_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        print()
+        print(
+            f"AI review timed out after {REVIEW_TIMEOUT} seconds "
+            f"for module: {module.name}"
+        )
+        return 1
 
     return result.returncode
 
@@ -111,6 +126,14 @@ def main() -> int:
 
     if not LLAMA.is_file():
         print(f"llama-cli not found: {LLAMA}")
+        return 1
+
+    if not PROMPT_FILE.is_file():
+        print(f"Prompt not found: {PROMPT_FILE}")
+        return 1
+
+    if not MODULES.is_dir():
+        print(f"Modules directory not found: {MODULES}")
         return 1
 
     system_prompt = PROMPT_FILE.read_text(encoding="utf-8")
