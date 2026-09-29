@@ -1,0 +1,11 @@
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  portability-*
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: 'modules/.*'
+
+FormatStyle: file
