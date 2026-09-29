@@ -18,6 +18,11 @@ jobs:
           - npc-teleport
           - npc-transmogrifier
 
+    env:
+      BOOST_VERSION: 1.91.0
+      BOOST_VERSION_UNDERSCORE: 1_91_0
+      BOOST_ROOT: ${{ github.workspace }}/boost
+
     steps:
       - name: Checkout modules
         uses: actions/checkout@v4
@@ -42,7 +47,41 @@ jobs:
             ninja-build \
             default-libmysqlclient-dev \
             libssl-dev \
-            libboost-all-dev
+            curl
+
+      - name: Cache Boost
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BOOST_ROOT }}
+          key: boost-${{ runner.os }}-${{ env.BOOST_VERSION }}
+
+      - name: Install Boost
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          curl -L \
+            "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VERSION_UNDERSCORE}.tar.gz" \
+            -o boost.tar.gz
+
+          mkdir -p "$BOOST_ROOT"
+
+          tar \
+            -xzf boost.tar.gz \
+            --strip-components=1 \
+            -C "$BOOST_ROOT"
+
+          cd "$BOOST_ROOT"
+
+          ./bootstrap.sh \
+            --with-toolset=gcc \
+            --prefix="$BOOST_ROOT"
+
+          ./b2 \
+            -j2 \
+            variant=release \
+            link=static \
+            threading=multi \
+            install
 
       - name: Install module
         run: |
@@ -61,6 +100,8 @@ jobs:
             -B build \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DBOOST_ROOT="$BOOST_ROOT" \
+            -DBoost_NO_SYSTEM_PATHS=ON \
             -DSCRIPTS=ON \
             -DTOOLS=OFF \
             -DSKYFIRE_BUILD_TESTS=OFF
