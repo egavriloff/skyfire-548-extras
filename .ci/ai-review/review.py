@@ -27,7 +27,7 @@ ALLOWED_SUFFIXES = {
 }
 
 MAX_FILE_SIZE = 100_000
-MAX_CHUNK_CHARS = 40_000
+MAX_CHUNK_CHARS = 20_000
 
 MAX_OUTPUT_TOKENS = 768
 CONTEXT_SIZE = 16_384
@@ -120,6 +120,22 @@ def build_chunks(files: list[tuple[str, str]]) -> list[str]:
     return chunks
 
 
+def extract_review_output(output: str) -> str:
+    result_position = output.find("RESULT:")
+
+    if result_position == -1:
+        return ""
+
+    review = output[result_position:]
+
+    prompt_stats_position = review.find("[ Prompt:")
+
+    if prompt_stats_position != -1:
+        review = review[:prompt_stats_position]
+
+    return review.strip()
+
+
 def review_chunk(
     module: Path,
     system_prompt: str,
@@ -172,10 +188,11 @@ Do not assume that files from other chunks are available.
             cwd=ROOT,
             input="/exit\n",
             text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             timeout=REVIEW_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        print()
         print(
             f"AI review timed out after {REVIEW_TIMEOUT} seconds "
             f"for {module.name}, chunk "
@@ -183,15 +200,35 @@ Do not assume that files from other chunks are available.
         )
         return 1
 
+    output = result.stdout or ""
+    review_output = extract_review_output(output)
+
     if result.returncode != 0:
-        print()
         print(
             f"AI review failed for {module.name}, "
             f"chunk {chunk_index}/{chunk_count} "
             f"with exit code {result.returncode}"
         )
+        print()
+        print("Raw llama-cli output:")
+        print(output.strip())
+        return 1
 
-    return result.returncode
+    if not review_output:
+        print(
+            f"AI review failed for {module.name}, "
+            f"chunk {chunk_index}/{chunk_count}: "
+            f"no RESULT found"
+        )
+        print()
+        print("Raw llama-cli output:")
+        print(output.strip())
+        return 1
+
+    print(review_output)
+    print()
+
+    return 0
 
 
 def review_module(module: Path, system_prompt: str) -> int:
