@@ -1,0 +1,44 @@
+name: Release Modules
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  release:
+    name: Release Modules
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package modules
+        run: |
+          mkdir -p dist
+
+          for module in modules/*; do
+            [ -d "$module" ] || continue
+
+            name="$(basename "$module")"
+            [ "$name" = "_template" ] && continue
+
+            (
+              cd modules
+              zip -r "../dist/${name}-${GITHUB_REF_NAME}.zip" "$name"
+            )
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*.zip

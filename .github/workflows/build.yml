@@ -1,36 +1,24 @@
-name: Build modules
+name: Build Modules
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
+env:
+  BOOST_VERSION: "1.91.0"
+  OPENSSL_VERSION: "4.0.0"
+
 jobs:
   build:
-    name: Build ${{ matrix.module }}
-    runs-on: ubuntu-24.04
-
-    strategy:
-      fail-fast: false
-      matrix:
-        module:
-          - npc-teleport
-          - npc-transmogrifier
-
-    env:
-      BOOST_VERSION: 1.91.0
-      BOOST_VERSION_UNDERSCORE: 1_91_0
-      BOOST_ROOT: ${{ github.workspace }}/boost
-
-      OPENSSL_VERSION: 4.0.0
-      OPENSSL_ROOT: ${{ github.workspace }}/openssl
+    name: Build Modules
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout modules
         uses: actions/checkout@v4
-        with:
-          path: modules-repository
 
       - name: Checkout SkyFire
         uses: actions/checkout@v4
@@ -39,105 +27,136 @@ jobs:
           path: skyfire
           fetch-depth: 1
 
-      - name: Install build dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
-            gcc-14 \
-            g++-14 \
             cmake \
             ninja-build \
-            default-libmysqlclient-dev \
+            ccache \
+            libmysqlclient-dev \
             libreadline-dev \
-            curl \
-            perl
+            zlib1g-dev
+
+      # ------------------------------------------------------------
+      # Boost
+      # ------------------------------------------------------------
 
       - name: Cache Boost
         id: cache-boost
         uses: actions/cache@v4
         with:
-          path: ${{ env.BOOST_ROOT }}
+          path: ~/.local/boost
           key: boost-${{ runner.os }}-${{ env.BOOST_VERSION }}
 
-      - name: Install Boost
+      - name: Build Boost
         if: steps.cache-boost.outputs.cache-hit != 'true'
         run: |
-          curl -L \
-            "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VERSION_UNDERSCORE}.tar.gz" \
-            -o boost.tar.gz
+          wget -q \
+            "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_1_91_0.tar.gz"
 
-          mkdir -p "$BOOST_ROOT"
-
-          tar \
-            -xzf boost.tar.gz \
-            --strip-components=1 \
-            -C "$BOOST_ROOT"
-
-          cd "$BOOST_ROOT"
+          tar -xzf boost_1_91_0.tar.gz
+          cd boost_1_91_0
 
           ./bootstrap.sh \
-            --with-toolset=gcc \
-            --prefix="$BOOST_ROOT"
+            --prefix="$HOME/.local/boost"
 
           ./b2 \
-            -j2 \
-            variant=release \
-            link=static \
-            threading=multi \
+            -j"$(nproc)" \
             install
+
+      # ------------------------------------------------------------
+      # OpenSSL
+      # ------------------------------------------------------------
 
       - name: Cache OpenSSL
         id: cache-openssl
         uses: actions/cache@v4
         with:
-          path: ${{ env.OPENSSL_ROOT }}
+          path: ~/.local/openssl
           key: openssl-${{ runner.os }}-${{ env.OPENSSL_VERSION }}
 
-      - name: Install OpenSSL
+      - name: Build OpenSSL
         if: steps.cache-openssl.outputs.cache-hit != 'true'
         run: |
-          curl -L \
-            "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz" \
-            -o openssl.tar.gz
+          wget -q \
+            "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
 
-          tar -xzf openssl.tar.gz
-
+          tar -xzf "openssl-${OPENSSL_VERSION}.tar.gz"
           cd "openssl-${OPENSSL_VERSION}"
 
           ./Configure \
-            --prefix="$OPENSSL_ROOT" \
-            --openssldir="$OPENSSL_ROOT/ssl"
+            --prefix="$HOME/.local/openssl" \
+            --openssldir="$HOME/.local/openssl"
 
-          make -j2
+          make -j"$(nproc)"
           make install_sw
 
-      - name: Install module
+      # ------------------------------------------------------------
+      # Compiler cache
+      # ------------------------------------------------------------
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Configure ccache
         run: |
-          cp -R \
-            "modules-repository/modules/${{ matrix.module }}" \
-            "skyfire/modules/${{ matrix.module }}"
+          ccache --max-size=2G
+          ccache --zero-stats
+
+      # ------------------------------------------------------------
+      # Modules
+      # ------------------------------------------------------------
+
+      - name: Install modules
+        run: |
+          for module in modules/*; do
+            [ -d "$module" ] || continue
+
+            name="$(basename "$module")"
+
+            # Template is not built.
+            [ "$name" = "_template" ] && continue
+
+            echo "Installing $name"
+            cp -R "$module" "skyfire/modules/$name"
+          done
+
+      # ------------------------------------------------------------
+      # SkyFire
+      # ------------------------------------------------------------
 
       - name: Configure SkyFire
         working-directory: skyfire
         env:
-          CC: gcc-14
-          CXX: g++-14
-          OPENSSL_ROOT_DIR: ${{ env.OPENSSL_ROOT }}
+          BOOST_ROOT: ${{ env.HOME }}/.local/boost
+          OPENSSL_ROOT_DIR: ${{ env.HOME }}/.local/openssl
+          CCACHE_DIR: ${{ env.HOME }}/.cache/ccache
         run: |
           cmake \
             -S . \
             -B build \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBOOST_ROOT="$BOOST_ROOT" \
-            -DBoost_NO_SYSTEM_PATHS=ON \
-            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT" \
-            -DSCRIPTS=ON \
-            -DTOOLS=OFF \
-            -DSKYFIRE_BUILD_TESTS=OFF
+            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
 
-      - name: Build SkyFire
+      - name: Build SkyFire + modules
         working-directory: skyfire
+        env:
+          CCACHE_DIR: ${{ env.HOME }}/.cache/ccache
         run: |
-          cmake --build build --parallel 2
+          cmake --build build --parallel "$(nproc)"
+
+      - name: ccache stats
+        if: always()
+        run: |
+          ccache --show-stats
