@@ -27,7 +27,7 @@ ALLOWED_SUFFIXES = {
 }
 
 MAX_FILE_SIZE = 100_000
-MAX_CHUNK_CHARS = 20_000
+MAX_CHUNK_CHARS = 12_000
 
 MAX_OUTPUT_TOKENS = 768
 CONTEXT_SIZE = 16_384
@@ -142,7 +142,7 @@ def review_chunk(
     chunk: str,
     chunk_index: int,
     chunk_count: int,
-) -> int:
+) -> tuple[bool, str]:
     print()
     print("-" * 72)
     print(
@@ -193,45 +193,52 @@ Do not assume that files from other chunks are available.
             timeout=REVIEW_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        print(
-            f"AI review timed out after {REVIEW_TIMEOUT} seconds "
-            f"for {module.name}, chunk "
-            f"{chunk_index}/{chunk_count}"
+        message = (
+            f"{module.name} chunk {chunk_index}/{chunk_count}: "
+            f"timed out after {REVIEW_TIMEOUT} seconds"
         )
-        return 1
+        print(f"AI review failed: {message}")
+        return False, message
 
     output = result.stdout or ""
     review_output = extract_review_output(output)
 
     if result.returncode != 0:
-        print(
-            f"AI review failed for {module.name}, "
-            f"chunk {chunk_index}/{chunk_count} "
-            f"with exit code {result.returncode}"
+        message = (
+            f"{module.name} chunk {chunk_index}/{chunk_count}: "
+            f"llama-cli exited with code {result.returncode}"
         )
+
+        print(f"AI review failed: {message}")
         print()
         print("Raw llama-cli output:")
         print(output.strip())
-        return 1
+
+        return False, message
 
     if not review_output:
-        print(
-            f"AI review failed for {module.name}, "
-            f"chunk {chunk_index}/{chunk_count}: "
+        message = (
+            f"{module.name} chunk {chunk_index}/{chunk_count}: "
             f"no RESULT found"
         )
+
+        print(f"AI review failed: {message}")
         print()
         print("Raw llama-cli output:")
         print(output.strip())
-        return 1
+
+        return False, message
 
     print(review_output)
     print()
 
-    return 0
+    return True, ""
 
 
-def review_module(module: Path, system_prompt: str) -> int:
+def review_module(
+    module: Path,
+    system_prompt: str,
+) -> list[str]:
     print()
     print("=" * 72)
     print(f"AI REVIEW: {module.name}")
@@ -242,7 +249,7 @@ def review_module(module: Path, system_prompt: str) -> int:
 
     if not files:
         print("No reviewable files found.")
-        return 0
+        return []
 
     chunks = build_chunks(files)
 
@@ -251,10 +258,10 @@ def review_module(module: Path, system_prompt: str) -> int:
         f"into {len(chunks)} chunk(s)."
     )
 
-    failed = False
+    failures = []
 
     for index, chunk in enumerate(chunks, start=1):
-        result = review_chunk(
+        success, message = review_chunk(
             module,
             system_prompt,
             chunk,
@@ -262,10 +269,10 @@ def review_module(module: Path, system_prompt: str) -> int:
             len(chunks),
         )
 
-        if result != 0:
-            failed = True
+        if not success:
+            failures.append(message)
 
-    return 1 if failed else 0
+    return failures
 
 
 def main() -> int:
@@ -300,13 +307,32 @@ def main() -> int:
 
     print(f"Found {len(modules)} module(s).")
 
-    failed = False
+    failures = []
 
     for module in modules:
-        if review_module(module, system_prompt) != 0:
-            failed = True
+        failures.extend(
+            review_module(module, system_prompt)
+        )
 
-    return 1 if failed else 0
+    print()
+    print("=" * 72)
+    print("AI REVIEW SUMMARY")
+    print("=" * 72)
+
+    if failures:
+        print()
+        print(f"Technical failures: {len(failures)}")
+        print()
+
+        for failure in failures:
+            print(f"- {failure}")
+
+        return 1
+
+    print()
+    print("All module chunks reviewed successfully.")
+
+    return 0
 
 
 if __name__ == "__main__":
