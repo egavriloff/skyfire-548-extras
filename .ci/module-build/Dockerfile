@@ -22,7 +22,7 @@ RUN wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/${BOOST_D
 RUN wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
     && tar -xzf "openssl-${OPENSSL_VERSION}.tar.gz" \
     && cd "openssl-${OPENSSL_VERSION}" \
-    && ./Configure linux-x86_64 \
+    && ./Configure \
        --prefix="/opt/openssl-${OPENSSL_VERSION}" \
        --openssldir="/opt/openssl-${OPENSSL_VERSION}/ssl" \
        shared enable-legacy \

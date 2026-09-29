@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 set -Eeuo pipefail
 
 TARGET="${1:-all}"
@@ -19,45 +20,77 @@ fail() {
 
 if [[ "$TARGET" != "all" && ! -d "${LOCAL_MODULES}/${TARGET}" ]]; then
   echo "Available modules:"
-  find "$LOCAL_MODULES" -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' | sort
+  find "$LOCAL_MODULES" \
+    -mindepth 1 \
+    -maxdepth 1 \
+    -type d \
+    -printf '  %f\n' | sort
+
   fail "module '${TARGET}' does not exist"
 fi
 
 if [[ ! -d "${SKYFIRE_DIR}/.git" ]]; then
   log "Cloning SkyFire ${SKYFIRE_BRANCH}"
-  rm -rf "$SKYFIRE_DIR"
-  git clone --branch "${SKYFIRE_BRANCH}" --single-branch \
-    "${SKYFIRE_REPO}" "$SKYFIRE_DIR"
+
+  # SKYFIRE_DIR is the root of a Docker volume.
+  # Clean its contents without removing the mount point itself.
+  find "$SKYFIRE_DIR" \
+    -mindepth 1 \
+    -maxdepth 1 \
+    -exec rm -rf {} +
+
+  git clone \
+    --branch "${SKYFIRE_BRANCH}" \
+    --single-branch \
+    "${SKYFIRE_REPO}" \
+    "$SKYFIRE_DIR"
 else
   log "Updating SkyFire ${SKYFIRE_BRANCH}"
+
   git -C "$SKYFIRE_DIR" fetch origin "${SKYFIRE_BRANCH}"
   git -C "$SKYFIRE_DIR" checkout -f "${SKYFIRE_BRANCH}"
   git -C "$SKYFIRE_DIR" reset --hard "origin/${SKYFIRE_BRANCH}"
 fi
 
-# Keep SkyFire's module infrastructure, replace only custom mod-* directories.
-find "${SKYFIRE_DIR}/modules" \
-  -mindepth 1 -maxdepth 1 -type d -name 'mod-*' \
-  -exec rm -rf {} +
+[[ -d "${SKYFIRE_DIR}/modules" ]] || fail "SkyFire modules/ directory not found"
+
+log "Installing modules"
 
 if [[ "$TARGET" == "all" ]]; then
-  log "Installing all modules"
   found=0
+
   while IFS= read -r -d '' module; do
     found=1
     name="$(basename "$module")"
-    echo "  + $name"
-    cp -a "$module" "${SKYFIRE_DIR}/modules/$name"
-  done < <(find "$LOCAL_MODULES" -mindepth 1 -maxdepth 1 -type d -name 'mod-*' -print0 | sort -z)
 
-  [[ "$found" -eq 1 ]] || fail "no modules matching modules/mod-* found"
+    echo "  + $name"
+
+    rm -rf "${SKYFIRE_DIR}/modules/${name}"
+    cp -a "$module" "${SKYFIRE_DIR}/modules/${name}"
+  done < <(
+    find "$LOCAL_MODULES" \
+      -mindepth 1 \
+      -maxdepth 1 \
+      -type d \
+      -print0 | sort -z
+  )
+
+  [[ "$found" -eq 1 ]] || fail "no modules found in modules/"
 else
-  log "Installing ${TARGET}"
-  cp -a "${LOCAL_MODULES}/${TARGET}" "${SKYFIRE_DIR}/modules/${TARGET}"
+  echo "  + $TARGET"
+
+  rm -rf "${SKYFIRE_DIR}/modules/${TARGET}"
+  cp -a \
+    "${LOCAL_MODULES}/${TARGET}" \
+    "${SKYFIRE_DIR}/modules/${TARGET}"
 fi
 
 log "Configuring SkyFire"
-cmake -S "$SKYFIRE_DIR" -B "$BUILD_DIR" -G Ninja \
+
+cmake \
+  -S "$SKYFIRE_DIR" \
+  -B "$BUILD_DIR" \
+  -G Ninja \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DCMAKE_C_COMPILER="${CC}" \
   -DCMAKE_CXX_COMPILER="${CXX}" \
@@ -70,10 +103,23 @@ cmake -S "$SKYFIRE_DIR" -B "$BUILD_DIR" -G Ninja \
   -DSCRIPTS=ON
 
 log "Building modules"
-cmake --build "$BUILD_DIR" --target modules --parallel "$(nproc)"
+
+cmake \
+  --build "$BUILD_DIR" \
+  --target modules \
+  --parallel "$(nproc)"
 
 log "Linking worldserver"
-cmake --build "$BUILD_DIR" --target worldserver --parallel "$(nproc)"
+
+cmake \
+  --build "$BUILD_DIR" \
+  --target worldserver \
+  --parallel "$(nproc)"
+
+log "ccache stats"
 
 ccache --show-stats || true
-printf '\n\033[1;32mOK: %s built successfully.\033[0m\n' "$TARGET"
+
+printf \
+  '\n\033[1;32mOK: %s built successfully.\033[0m\n' \
+  "$TARGET"
