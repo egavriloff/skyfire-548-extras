@@ -1,3 +1,8 @@
+# Build Status
+[![Module Verify](https://github.com/egavriloff/skyfire-548-modules/actions/workflows/verify.yml/badge.svg)](https://github.com/egavriloff/skyfire-548-modules/actions/workflows/verify.yml)
+[![Build modules](https://github.com/egavriloff/skyfire-548-modules/actions/workflows/build.yml/badge.svg)](https://github.com/egavriloff/skyfire-548-modules/actions/workflows/build.yml)
+[![AI Review](https://github.com/egavriloff/skyfire-548-modules/actions/workflows/ai-review.yml/badge.svg)](https://github.com/egavriloff/skyfire-548-modules/actions/workflows/ai-review.yml)
+
 # 🔥 SkyFire Ports
 
 A collection of modules, scripts and other stuff I've ported to **SkyFire** from different WoW emulator projects.
