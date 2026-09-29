@@ -1,0 +1,49 @@
+# SkyFire 5.4.8 NPC Transmogrifier module
+# Copy/rename this file to transmogrification.conf next to worldserver.conf
+# and edit that user file. The module loads .dist first, then .conf overrides it.
+
+# Explicit item entry allow/deny lists, separated by spaces.
+Transmogrification.Allowed = ""
+Transmogrification.NotAllowed = ""
+
+# Price = target item special price * ScaledCostModifier + CopperCost
+Transmogrification.ScaledCostModifier = 1.0
+Transmogrification.CopperCost = 0
+
+# Optional token cost in addition to money.
+Transmogrification.RequireToken = false
+Transmogrification.TokenEntry = 49426
+Transmogrification.TokenAmount = 1
+
+# Allowed source/target qualities.
+Transmogrification.AllowPoor = false
+Transmogrification.AllowCommon = false
+Transmogrification.AllowUncommon = true
+Transmogrification.AllowRare = true
+Transmogrification.AllowEpic = true
+Transmogrification.AllowLegendary = false
+Transmogrification.AllowArtifact = false
+Transmogrification.AllowHeirloom = true
+
+# Compatibility rules.
+Transmogrification.AllowMixedArmorTypes = false
+Transmogrification.AllowMixedWeaponTypes = false
+Transmogrification.AllowFishingPoles = false
+
+# Requirement checks.
+Transmogrification.IgnoreReqRace = false
+Transmogrification.IgnoreReqClass = false
+Transmogrification.IgnoreReqSkill = false
+Transmogrification.IgnoreReqSpell = false
+Transmogrification.IgnoreReqLevel = false
+Transmogrification.IgnoreReqEvent = false
+# Kept for compatibility with Rochet2/Legends configs. Cosmetic/statless MoP items
+# are accepted by this port regardless, so this flag currently has no extra effect.
+Transmogrification.IgnoreReqStats = false
+
+# Saved sets/presets.
+Transmogrification.EnableSets = true
+Transmogrification.MaxSets = 10
+# Save cost = sum of appearance special prices * modifier + copper cost.
+Transmogrification.SetCostModifier = 3.0
+Transmogrification.SetCopperCost = 0

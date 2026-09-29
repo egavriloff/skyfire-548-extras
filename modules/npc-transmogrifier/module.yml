@@ -1,0 +1,29 @@
+name: NPC Transmogrifier
+slug: npc-transmogrifier
+status: working
+
+target:
+  core: ProjectSkyfire/SkyFire_548
+  repository: https://github.com/ProjectSkyfire/SkyFire_548
+
+upstream:
+  name: alexkulya/pandaria_5.4.8
+  repository: https://github.com/alexkulya/pandaria_5.4.8
+  revision: null
+  author: null
+  license: null
+
+components:
+  source: true
+  config: true
+  patches: false
+
+  sql:
+    auth: false
+    characters: true
+    world: false
+
+testing:
+  build: true
+  startup: true
+  ingame: true
