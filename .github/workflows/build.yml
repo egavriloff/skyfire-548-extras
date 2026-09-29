@@ -49,6 +49,7 @@ jobs:
             cmake \
             ninja-build \
             default-libmysqlclient-dev \
+            libreadline-dev \
             curl \
             perl
 
