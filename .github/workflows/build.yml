@@ -1,0 +1,71 @@
+name: Build modules
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.module }}
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - npc-teleport
+          - npc-transmogrifier
+
+    steps:
+      - name: Checkout modules
+        uses: actions/checkout@v4
+        with:
+          path: modules-repository
+
+      - name: Checkout SkyFire
+        uses: actions/checkout@v4
+        with:
+          repository: ProjectSkyfire/SkyFire_548
+          path: skyfire
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            gcc-14 \
+            g++-14 \
+            cmake \
+            ninja-build \
+            default-libmysqlclient-dev \
+            libssl-dev \
+            libboost-all-dev
+
+      - name: Install module
+        run: |
+          cp -R \
+            "modules-repository/modules/${{ matrix.module }}" \
+            "skyfire/modules/${{ matrix.module }}"
+
+      - name: Configure
+        working-directory: skyfire
+        env:
+          CC: gcc-14
+          CXX: g++-14
+        run: |
+          cmake \
+            -S . \
+            -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSCRIPTS=ON \
+            -DTOOLS=OFF \
+            -DSKYFIRE_BUILD_TESTS=OFF
+
+      - name: Build
+        working-directory: skyfire
+        run: |
+          cmake --build build --parallel 2
