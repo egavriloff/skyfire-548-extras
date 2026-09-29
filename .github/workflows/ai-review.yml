@@ -126,6 +126,10 @@ jobs:
           "$AI_DIR/llama-cli" --version
           ls -lh "$AI_DIR/$MODEL_FILE"
 
+          echo
+          echo "AI review files:"
+          ls -lah .ci/ai-review
+
       - name: Run AI review
         run: |
-          python3 .ci/ai-review/review.py
+          python3 -u .ci/ai-review/review.py

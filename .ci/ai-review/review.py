@@ -69,16 +69,19 @@ def format_file(name: str, content: str) -> str:
 
 def split_large_file(name: str, content: str) -> list[str]:
     chunks = []
+    part_number = 1
 
     for offset in range(0, len(content), MAX_CHUNK_CHARS):
         part = content[offset:offset + MAX_CHUNK_CHARS]
 
         chunks.append(
             format_file(
-                f"{name} [part {len(chunks) + 1}]",
+                f"{name} [part {part_number}]",
                 part,
             )
         )
+
+        part_number += 1
 
     return chunks
 
@@ -100,7 +103,10 @@ def build_chunks(files: list[tuple[str, str]]) -> list[str]:
             chunks.extend(split_large_file(name, content))
             continue
 
-        if current_parts and current_size + len(formatted) > MAX_CHUNK_CHARS:
+        if (
+            current_parts
+            and current_size + len(formatted) > MAX_CHUNK_CHARS
+        ):
             chunks.append("".join(current_parts))
             current_parts = []
             current_size = 0
@@ -158,12 +164,113 @@ Do not assume that files from other chunks are available.
         "--temp",
         "0.1",
         "--no-display-prompt",
-        "--no-conversation",
     ]
 
     try:
         result = subprocess.run(
             command,
             cwd=ROOT,
+            input="/exit\n",
             text=True,
-            timeout
+            timeout=REVIEW_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        print()
+        print(
+            f"AI review timed out after {REVIEW_TIMEOUT} seconds "
+            f"for {module.name}, chunk "
+            f"{chunk_index}/{chunk_count}"
+        )
+        return 1
+
+    if result.returncode != 0:
+        print()
+        print(
+            f"AI review failed for {module.name}, "
+            f"chunk {chunk_index}/{chunk_count} "
+            f"with exit code {result.returncode}"
+        )
+
+    return result.returncode
+
+
+def review_module(module: Path, system_prompt: str) -> int:
+    print()
+    print("=" * 72)
+    print(f"AI REVIEW: {module.name}")
+    print("=" * 72)
+    print()
+
+    files = collect_module_files(module)
+
+    if not files:
+        print("No reviewable files found.")
+        return 0
+
+    chunks = build_chunks(files)
+
+    print(
+        f"Collected {len(files)} files "
+        f"into {len(chunks)} chunk(s)."
+    )
+
+    failed = False
+
+    for index, chunk in enumerate(chunks, start=1):
+        result = review_chunk(
+            module,
+            system_prompt,
+            chunk,
+            index,
+            len(chunks),
+        )
+
+        if result != 0:
+            failed = True
+
+    return 1 if failed else 0
+
+
+def main() -> int:
+    if not MODEL.is_file():
+        print(f"Model not found: {MODEL}")
+        return 1
+
+    if not LLAMA.is_file():
+        print(f"llama-cli not found: {LLAMA}")
+        return 1
+
+    if not PROMPT_FILE.is_file():
+        print(f"Prompt not found: {PROMPT_FILE}")
+        return 1
+
+    if not MODULES.is_dir():
+        print(f"Modules directory not found: {MODULES}")
+        return 1
+
+    system_prompt = PROMPT_FILE.read_text(encoding="utf-8")
+
+    modules = [
+        path
+        for path in sorted(MODULES.iterdir())
+        if path.is_dir()
+        and not path.name.startswith(("_", "."))
+    ]
+
+    if not modules:
+        print("No modules found.")
+        return 1
+
+    print(f"Found {len(modules)} module(s).")
+
+    failed = False
+
+    for module in modules:
+        if review_module(module, system_prompt) != 0:
+            failed = True
+
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
