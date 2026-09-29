@@ -1,0 +1,7 @@
+{
+    "recommendations": [
+        "twxs.cmake",
+        "editorconfig.editorconfig",
+        "xaver.clang-format"
+    ]
+}

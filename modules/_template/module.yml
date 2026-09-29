@@ -1,0 +1,29 @@
+name: Example Module
+slug: mod-example
+status: wip
+
+target:
+  core: ProjectSkyfire/SkyFire_548
+  repository: https://github.com/ProjectSkyfire/SkyFire_548
+
+upstream:
+  name: null
+  repository: null
+  revision: null
+  author: null
+  license: null
+
+components:
+  source: true
+  config: true
+  patches: true
+
+  sql:
+    auth: true
+    characters: true
+    world: true
+
+testing:
+  build: false
+  startup: false
+  ingame: false
