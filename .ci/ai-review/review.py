@@ -27,14 +27,16 @@ ALLOWED_SUFFIXES = {
 }
 
 MAX_FILE_SIZE = 100_000
+MAX_CHUNK_CHARS = 40_000
+
 MAX_OUTPUT_TOKENS = 768
 CONTEXT_SIZE = 16_384
 THREADS = 4
 REVIEW_TIMEOUT = 300
 
 
-def collect_module(module: Path) -> str:
-    parts = []
+def collect_module_files(module: Path) -> list[tuple[str, str]]:
+    files = []
 
     for path in sorted(module.rglob("*")):
         if not path.is_file():
@@ -53,35 +55,92 @@ def collect_module(module: Path) -> str:
         except UnicodeDecodeError:
             continue
 
-        parts.append(
-            f"\n===== FILE: {relative} =====\n\n"
-            f"{content}\n"
+        files.append((str(relative), content))
+
+    return files
+
+
+def format_file(name: str, content: str) -> str:
+    return (
+        f"\n===== FILE: {name} =====\n\n"
+        f"{content}\n"
+    )
+
+
+def split_large_file(name: str, content: str) -> list[str]:
+    chunks = []
+
+    for offset in range(0, len(content), MAX_CHUNK_CHARS):
+        part = content[offset:offset + MAX_CHUNK_CHARS]
+
+        chunks.append(
+            format_file(
+                f"{name} [part {len(chunks) + 1}]",
+                part,
+            )
         )
 
-    return "".join(parts)
+    return chunks
 
 
-def review_module(module: Path, system_prompt: str) -> int:
+def build_chunks(files: list[tuple[str, str]]) -> list[str]:
+    chunks = []
+    current_parts = []
+    current_size = 0
+
+    for name, content in files:
+        formatted = format_file(name, content)
+
+        if len(formatted) > MAX_CHUNK_CHARS:
+            if current_parts:
+                chunks.append("".join(current_parts))
+                current_parts = []
+                current_size = 0
+
+            chunks.extend(split_large_file(name, content))
+            continue
+
+        if current_parts and current_size + len(formatted) > MAX_CHUNK_CHARS:
+            chunks.append("".join(current_parts))
+            current_parts = []
+            current_size = 0
+
+        current_parts.append(formatted)
+        current_size += len(formatted)
+
+    if current_parts:
+        chunks.append("".join(current_parts))
+
+    return chunks
+
+
+def review_chunk(
+    module: Path,
+    system_prompt: str,
+    chunk: str,
+    chunk_index: int,
+    chunk_count: int,
+) -> int:
     print()
-    print("=" * 72)
-    print(f"AI REVIEW: {module.name}")
-    print("=" * 72)
+    print("-" * 72)
+    print(
+        f"CHUNK {chunk_index}/{chunk_count} "
+        f"({len(chunk)} characters)"
+    )
+    print("-" * 72)
     print()
-
-    module_content = collect_module(module)
-
-    if not module_content.strip():
-        print("No reviewable files found.")
-        return 0
 
     prompt = f"""
 {system_prompt}
 
 MODULE: {module.name}
 
-The following are the complete reviewable files from this module.
+This is chunk {chunk_index} of {chunk_count} from the module.
 
-{module_content}
+Review ONLY the files present in this chunk.
+Do not assume that files from other chunks are available.
+
+{chunk}
 """
 
     command = [
@@ -99,6 +158,7 @@ The following are the complete reviewable files from this module.
         "--temp",
         "0.1",
         "--no-display-prompt",
+        "--no-conversation",
     ]
 
     try:
@@ -106,56 +166,4 @@ The following are the complete reviewable files from this module.
             command,
             cwd=ROOT,
             text=True,
-            timeout=REVIEW_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        print()
-        print(
-            f"AI review timed out after {REVIEW_TIMEOUT} seconds "
-            f"for module: {module.name}"
-        )
-        return 1
-
-    return result.returncode
-
-
-def main() -> int:
-    if not MODEL.is_file():
-        print(f"Model not found: {MODEL}")
-        return 1
-
-    if not LLAMA.is_file():
-        print(f"llama-cli not found: {LLAMA}")
-        return 1
-
-    if not PROMPT_FILE.is_file():
-        print(f"Prompt not found: {PROMPT_FILE}")
-        return 1
-
-    if not MODULES.is_dir():
-        print(f"Modules directory not found: {MODULES}")
-        return 1
-
-    system_prompt = PROMPT_FILE.read_text(encoding="utf-8")
-
-    modules = [
-        path
-        for path in sorted(MODULES.iterdir())
-        if path.is_dir() and not path.name.startswith(("_", "."))
-    ]
-
-    if not modules:
-        print("No modules found.")
-        return 1
-
-    failed = False
-
-    for module in modules:
-        if review_module(module, system_prompt) != 0:
-            failed = True
-
-    return 1 if failed else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+            timeout
