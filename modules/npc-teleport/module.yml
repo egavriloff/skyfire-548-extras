@@ -1,0 +1,28 @@
+name: NPC Teleport
+slug: npc-teleport
+status: working
+
+target:
+  core: ProjectSkyfire/SkyFire_548
+  repository: https://github.com/ProjectSkyfire/SkyFire_548
+
+upstream:
+  name: alexkulya/pandaria_5.4.8
+  repository: https://github.com/alexkulya/pandaria_5.4.8
+  revision: null
+  author: null
+  license: GPL-2.0-or-later
+
+components:
+  source: true
+  config: false
+  patches: false
+  sql:
+    auth: false
+    characters: false
+    world: false
+
+testing:
+  build: true
+  startup: true
+  ingame: true
