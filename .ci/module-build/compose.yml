@@ -1,0 +1,16 @@
+services:
+  builder:
+    build:
+      context: ../..
+      dockerfile: .ci/module-build/Dockerfile
+    volumes:
+      - ../../modules:/workspace/modules:ro
+      - skyfire-source:/workspace/skyfire
+      - skyfire-ccache:/cache/ccache
+    environment:
+      SKYFIRE_REPO: https://github.com/ProjectSkyfire/SkyFire_548.git
+      SKYFIRE_BRANCH: main
+
+volumes:
+  skyfire-source:
+  skyfire-ccache:

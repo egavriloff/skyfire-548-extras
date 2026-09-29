@@ -1,0 +1,7 @@
+.git
+.ai
+.venv
+.vscode
+docs
+build
+*.zip
