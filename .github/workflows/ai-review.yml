@@ -31,9 +31,13 @@ jobs:
         run: |
           mkdir -p "$AI_DIR"
 
-      - name: Cache model
+      # -----------------------------------------------------------------------
+      # Model
+      # -----------------------------------------------------------------------
+
+      - name: Restore model cache
         id: cache-model
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.AI_DIR }}/${{ env.MODEL_FILE }}
           key: qwen25-coder-3b-q4km-v1
@@ -47,9 +51,20 @@ jobs:
             "$MODEL_URL" \
             -o "$AI_DIR/$MODEL_FILE"
 
-      - name: Cache llama.cpp CLI
+      - name: Save model cache
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.AI_DIR }}/${{ env.MODEL_FILE }}
+          key: qwen25-coder-3b-q4km-v1
+
+      # -----------------------------------------------------------------------
+      # llama.cpp
+      # -----------------------------------------------------------------------
+
+      - name: Restore llama.cpp CLI cache
         id: cache-llama
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.AI_DIR }}/llama-cli
           key: llama-cli-ubuntu-x64-v3
@@ -91,6 +106,17 @@ jobs:
             "$AI_DIR/llama-cli"
 
           chmod +x "$AI_DIR/llama-cli"
+
+      - name: Save llama.cpp CLI cache
+        if: steps.cache-llama.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.AI_DIR }}/llama-cli
+          key: llama-cli-ubuntu-x64-v3
+
+      # -----------------------------------------------------------------------
+      # Review
+      # -----------------------------------------------------------------------
 
       - name: Verify AI runtime
         run: |
