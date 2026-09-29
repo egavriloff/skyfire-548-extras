@@ -1,4 +1,4 @@
-name: Verify
+name: Module Verify
 
 on:
   push:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   verify:
-    name: Repository verification
+    name: Module verification
     runs-on: ubuntu-latest
 
     steps:
@@ -26,5 +26,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install C++ verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format cppcheck
+
       - name: Run verifier
-        run: sh .ci/verify.sh
+        run: bash .ci/module-verify/verify.sh

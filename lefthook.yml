@@ -6,7 +6,7 @@ pre-commit:
       stage_fixed: true
 
     verify:
-      run: sh .ci/verify.sh
+      run: sh .ci/module-verify/verify.sh
 
 commit-msg:
   commands:
