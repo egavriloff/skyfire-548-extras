@@ -1,0 +1,14 @@
+pre-commit:
+  commands:
+    clang-format:
+      glob: "*.{c,cc,cpp,cxx,h,hh,hpp,hxx}"
+      run: clang-format -i {staged_files}
+      stage_fixed: true
+
+    verify:
+      run: sh .ci/verify.sh
+
+commit-msg:
+  commands:
+    conventional-commit:
+      run: sh .ci/commit-msg.sh {1}
