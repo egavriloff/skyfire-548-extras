@@ -23,6 +23,9 @@ jobs:
       BOOST_VERSION_UNDERSCORE: 1_91_0
       BOOST_ROOT: ${{ github.workspace }}/boost
 
+      OPENSSL_VERSION: 4.0.0
+      OPENSSL_ROOT: ${{ github.workspace }}/openssl
+
     steps:
       - name: Checkout modules
         uses: actions/checkout@v4
@@ -46,8 +49,8 @@ jobs:
             cmake \
             ninja-build \
             default-libmysqlclient-dev \
-            libssl-dev \
-            curl
+            curl \
+            perl
 
       - name: Cache Boost
         id: cache-boost
@@ -83,17 +86,43 @@ jobs:
             threading=multi \
             install
 
+      - name: Cache OpenSSL
+        id: cache-openssl
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.OPENSSL_ROOT }}
+          key: openssl-${{ runner.os }}-${{ env.OPENSSL_VERSION }}
+
+      - name: Install OpenSSL
+        if: steps.cache-openssl.outputs.cache-hit != 'true'
+        run: |
+          curl -L \
+            "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz" \
+            -o openssl.tar.gz
+
+          tar -xzf openssl.tar.gz
+
+          cd "openssl-${OPENSSL_VERSION}"
+
+          ./Configure \
+            --prefix="$OPENSSL_ROOT" \
+            --openssldir="$OPENSSL_ROOT/ssl"
+
+          make -j2
+          make install_sw
+
       - name: Install module
         run: |
           cp -R \
             "modules-repository/modules/${{ matrix.module }}" \
             "skyfire/modules/${{ matrix.module }}"
 
-      - name: Configure
+      - name: Configure SkyFire
         working-directory: skyfire
         env:
           CC: gcc-14
           CXX: g++-14
+          OPENSSL_ROOT_DIR: ${{ env.OPENSSL_ROOT }}
         run: |
           cmake \
             -S . \
@@ -102,11 +131,12 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBOOST_ROOT="$BOOST_ROOT" \
             -DBoost_NO_SYSTEM_PATHS=ON \
+            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT" \
             -DSCRIPTS=ON \
             -DTOOLS=OFF \
             -DSKYFIRE_BUILD_TESTS=OFF
 
-      - name: Build
+      - name: Build SkyFire
         working-directory: skyfire
         run: |
           cmake --build build --parallel 2
