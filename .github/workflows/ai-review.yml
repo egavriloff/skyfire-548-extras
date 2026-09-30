@@ -13,10 +13,125 @@ permissions:
   contents: read
 
 jobs:
-  review:
-    name: Review modules
+  detect:
+    name: Detect modules
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+
+    outputs:
+      modules: ${{ steps.detect.outputs.modules }}
+      count: ${{ steps.detect.outputs.count }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect modules
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(".")
+          modules_dir = root / "modules"
+
+          all_modules = sorted(
+              path.name
+              for path in modules_dir.iterdir()
+              if path.is_dir()
+              and not path.name.startswith(("_", "."))
+          )
+
+          event_name = os.environ["EVENT_NAME"]
+
+          if event_name == "workflow_dispatch":
+              selected = all_modules
+          else:
+              import subprocess
+
+              base_sha = os.environ["BASE_SHA"]
+              head_sha = os.environ["HEAD_SHA"]
+
+              result = subprocess.run(
+                  [
+                      "git",
+                      "diff",
+                      "--name-only",
+                      base_sha,
+                      head_sha,
+                  ],
+                  check=True,
+                  text=True,
+                  stdout=subprocess.PIPE,
+              )
+
+              changed_files = [
+                  line.strip()
+                  for line in result.stdout.splitlines()
+                  if line.strip()
+              ]
+
+              review_infrastructure_changed = any(
+                  path.startswith(".ci/ai-review/")
+                  or path == ".github/workflows/ai-review.yml"
+                  for path in changed_files
+              )
+
+              if review_infrastructure_changed:
+                  selected = all_modules
+              else:
+                  changed_modules = set()
+
+                  for path in changed_files:
+                      parts = Path(path).parts
+
+                      if (
+                          len(parts) >= 2
+                          and parts[0] == "modules"
+                          and parts[1] in all_modules
+                      ):
+                          changed_modules.add(parts[1])
+
+                  selected = sorted(changed_modules)
+
+          modules_json = json.dumps(selected, separators=(",", ":"))
+
+          print("Modules selected for AI review:")
+
+          if selected:
+              for module in selected:
+                  print(f"  - {module}")
+          else:
+              print("  None.")
+
+          output_file = Path(os.environ["GITHUB_OUTPUT"])
+
+          with output_file.open("a", encoding="utf-8") as output:
+              output.write(f"modules={modules_json}\n")
+              output.write(f"count={len(selected)}\n")
+          PY
+
+  review:
+    name: Review ${{ matrix.module }}
+    needs: detect
+
+    if: needs.detect.outputs.count != '0'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        module: ${{ fromJSON(needs.detect.outputs.modules) }}
 
     env:
       AI_DIR: ${{ github.workspace }}/.ai
@@ -115,9 +230,13 @@ jobs:
           ls -lh "$AI_DIR/$MODEL_FILE"
 
           echo
+          echo "Module:"
+          echo "${{ matrix.module }}"
+
+          echo
           echo "AI review files:"
           ls -lah .ci/ai-review
 
-      - name: Run AI review
+      - name: Review ${{ matrix.module }}
         run: |
-          python3 -u .ci/ai-review/review.py
+          python3 -u .ci/ai-review/review.py "${{ matrix.module }}"

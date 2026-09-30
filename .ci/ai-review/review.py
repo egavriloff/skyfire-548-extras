@@ -32,7 +32,7 @@ MAX_CHUNK_CHARS = 40_000
 MAX_OUTPUT_TOKENS = 512
 CONTEXT_SIZE = 32_768
 THREADS = 4
-REVIEW_TIMEOUT = 300
+REVIEW_TIMEOUT = 600
 
 
 def collect_module_files(module: Path) -> list[tuple[str, str]]:
@@ -253,10 +253,7 @@ Do not assume that content from other chunks is available.
     return True, ""
 
 
-def review_module(
-    module: Path,
-    system_prompt: str,
-) -> list[str]:
+def review_module(module: Path, system_prompt: str) -> list[str]:
     print()
     print("=" * 72)
     print(f"AI REVIEW: {module.name}")
@@ -266,8 +263,9 @@ def review_module(
     files = collect_module_files(module)
 
     if not files:
-        print("No reviewable files found.")
-        return []
+        return [
+            f"{module.name}: no reviewable files found"
+        ]
 
     chunks = build_chunks(files)
 
@@ -294,6 +292,24 @@ def review_module(
 
 
 def main() -> int:
+    if len(sys.argv) != 2:
+        print(
+            "Usage: "
+            "python3 .ci/ai-review/review.py <module>"
+        )
+        return 1
+
+    module_name = sys.argv[1]
+
+    if (
+        not module_name
+        or module_name.startswith((".", "_"))
+        or "/" in module_name
+        or "\\" in module_name
+    ):
+        print(f"Invalid module name: {module_name}")
+        return 1
+
     if not MODEL.is_file():
         print(f"Model not found: {MODEL}")
         return 1
@@ -310,35 +326,29 @@ def main() -> int:
         print(f"Modules directory not found: {MODULES}")
         return 1
 
-    system_prompt = PROMPT_FILE.read_text(encoding="utf-8")
+    module = MODULES / module_name
 
-    modules = [
-        path
-        for path in sorted(MODULES.iterdir())
-        if path.is_dir()
-        and not path.name.startswith(("_", "."))
-    ]
-
-    if not modules:
-        print("No modules found.")
+    if not module.is_dir():
+        print(f"Module not found: {module_name}")
         return 1
 
-    print(f"Found {len(modules)} module(s).")
+    system_prompt = PROMPT_FILE.read_text(
+        encoding="utf-8"
+    )
 
-    failures = []
-
-    for module in modules:
-        failures.extend(
-            review_module(module, system_prompt)
-        )
+    failures = review_module(
+        module,
+        system_prompt,
+    )
 
     print()
     print("=" * 72)
     print("AI REVIEW SUMMARY")
     print("=" * 72)
+    print()
+    print(f"Module: {module_name}")
 
     if failures:
-        print()
         print(f"Technical failures: {len(failures)}")
         print()
 
@@ -347,7 +357,6 @@ def main() -> int:
 
         return 1
 
-    print()
     print("All module chunks reviewed successfully.")
 
     return 0
