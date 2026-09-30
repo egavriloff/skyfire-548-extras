@@ -1,3 +1,33 @@
+CompileFlags:
+  Add:
+    - -std=c++23
+
+    # Core / scripting
+    - -I.skyfire/SkyFire_548/src/server/game/Scripting
+    - -I.skyfire/SkyFire_548/src/server/scripts
+
+    # Common game types
+    - -I.skyfire/SkyFire_548/src/server/game/Entities/Player
+    - -I.skyfire/SkyFire_548/src/server/game/Entities/Creature
+    - -I.skyfire/SkyFire_548/src/server/game/Entities/Unit
+    - -I.skyfire/SkyFire_548/src/server/game/Entities/Object
+    - -I.skyfire/SkyFire_548/src/server/game/Entities/GameObject
+    - -I.skyfire/SkyFire_548/src/server/game/Entities/Item
+
+    # Common systems
+    - -I.skyfire/SkyFire_548/src/server/game/Chat
+    - -I.skyfire/SkyFire_548/src/server/game/Globals
+    - -I.skyfire/SkyFire_548/src/server/game/Spells
+    - -I.skyfire/SkyFire_548/src/server/game/World
+    - -I.skyfire/SkyFire_548/src/server/game/Maps
+
+    # Shared
+    - -I.skyfire/SkyFire_548/src/server/shared
+    - -I.skyfire/SkyFire_548/src/server/shared/Utilities
+    - -I.skyfire/SkyFire_548/src/server/shared/Logging
+    - -I.skyfire/SkyFire_548/src/server/shared/Database
+    - -I.skyfire/SkyFire_548/src/server/shared/Configuration
+
 Diagnostics:
   UnusedIncludes: Strict
   MissingIncludes: Strict

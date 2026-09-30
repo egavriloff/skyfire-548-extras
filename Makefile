@@ -1,4 +1,12 @@
-.PHONY: module-build module-build-image module-build-list module-build-download module-build-update module-build-status module-build-clean
+.PHONY: \
+	module-build \
+	module-build-image \
+	module-build-list \
+	module-build-download \
+	module-build-update \
+	module-build-status \
+	module-build-clean \
+	clangd-verify
 
 module-build:
 	@if [ -n "$(MODULE)" ]; then \
@@ -24,3 +32,6 @@ module-build-status:
 
 module-build-clean:
 	@bash .ci/module-build/build.sh clean
+
+clangd-verify:
+	@python3 .ci/verify-clangd.py
