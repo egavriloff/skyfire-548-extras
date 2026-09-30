@@ -9,7 +9,7 @@ AI_REVIEW_DIR = ROOT / ".ci" / "ai-review"
 PROMPT_FILE = AI_REVIEW_DIR / "prompt.md"
 
 AI_DIR = ROOT / ".ai"
-MODEL = AI_DIR / "qwen2.5-coder-3b-instruct-q4_k_m.gguf"
+MODEL = AI_DIR / "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
 LLAMA = AI_DIR / "llama-cli"
 
 ALLOWED_SUFFIXES = {
@@ -27,10 +27,10 @@ ALLOWED_SUFFIXES = {
 }
 
 MAX_FILE_SIZE = 100_000
-MAX_CHUNK_CHARS = 12_000
+MAX_CHUNK_CHARS = 40_000
 
-MAX_OUTPUT_TOKENS = 768
-CONTEXT_SIZE = 16_384
+MAX_OUTPUT_TOKENS = 512
+CONTEXT_SIZE = 32_768
 THREADS = 4
 REVIEW_TIMEOUT = 300
 
@@ -121,7 +121,7 @@ def build_chunks(files: list[tuple[str, str]]) -> list[str]:
 
 
 def extract_review_output(output: str) -> str:
-    result_position = output.find("RESULT:")
+    result_position = output.rfind("RESULT:")
 
     if result_position == -1:
         return ""
@@ -133,7 +133,18 @@ def extract_review_output(output: str) -> str:
     if prompt_stats_position != -1:
         review = review[:prompt_stats_position]
 
-    return review.strip()
+    review = review.strip()
+
+    valid_results = (
+        "RESULT: PASS",
+        "RESULT: WARNING",
+        "RESULT: ERROR",
+    )
+
+    if not review.startswith(valid_results):
+        return ""
+
+    return review
 
 
 def review_chunk(
@@ -159,8 +170,14 @@ MODULE: {module.name}
 
 This is chunk {chunk_index} of {chunk_count} from the module.
 
-Review ONLY the files present in this chunk.
-Do not assume that files from other chunks are available.
+Review ONLY the content present in this chunk.
+
+Files marked with [part N] are intentional fragments of larger files.
+Do not report that a file is incomplete, truncated, missing its beginning,
+missing its end, or missing another part.
+Review only concrete issues visible in the provided fragment.
+
+Do not assume that content from other chunks is available.
 
 {chunk}
 """
@@ -197,6 +214,7 @@ Do not assume that files from other chunks are available.
             f"{module.name} chunk {chunk_index}/{chunk_count}: "
             f"timed out after {REVIEW_TIMEOUT} seconds"
         )
+
         print(f"AI review failed: {message}")
         return False, message
 
@@ -219,7 +237,7 @@ Do not assume that files from other chunks are available.
     if not review_output:
         message = (
             f"{module.name} chunk {chunk_index}/{chunk_count}: "
-            f"no RESULT found"
+            f"no valid RESULT found"
         )
 
         print(f"AI review failed: {message}")
