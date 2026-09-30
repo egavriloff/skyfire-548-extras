@@ -77,7 +77,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.local/openssl
-          key: openssl-${{ runner.os }}-${{ env.OPENSSL_VERSION }}
+          key: openssl-${{ runner.os }}-${{ env.OPENSSL_VERSION }}-v2
 
       - name: Build OpenSSL
         if: steps.cache-openssl.outputs.cache-hit != 'true'
@@ -94,7 +94,12 @@ jobs:
             enable-legacy
 
           make -j"$(nproc)"
-          make install_sw
+          make install
+
+          echo "OpenSSL modules:"
+          find "$HOME/.local/openssl" \
+            \( -name 'legacy.so' -o -name 'default.so' \) \
+            -print
 
       # ------------------------------------------------------------
       # Compiler cache
