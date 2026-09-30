@@ -1,16 +1,16 @@
 services:
   builder:
+    platform: linux/amd64
+
     build:
       context: ../..
       dockerfile: .ci/module-build/Dockerfile
+      platforms:
+        - linux/amd64
+
     volumes:
-      - ../../modules:/workspace/modules:ro
-      - skyfire-source:/workspace/skyfire
+      - ../../.skyfire/SkyFire_548:/workspace/skyfire
       - skyfire-ccache:/cache/ccache
-    environment:
-      SKYFIRE_REPO: https://github.com/ProjectSkyfire/SkyFire_548.git
-      SKYFIRE_BRANCH: main
 
 volumes:
-  skyfire-source:
   skyfire-ccache:

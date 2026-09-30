@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
 
 TARGET="${1:-all}"
 SKYFIRE_DIR="/workspace/skyfire"
-LOCAL_MODULES="/workspace/modules"
 BUILD_DIR="${SKYFIRE_DIR}/build/local-modules"
 
 log() {
@@ -16,73 +14,12 @@ fail() {
   exit 1
 }
 
-[[ -d "$LOCAL_MODULES" ]] || fail "modules/ directory is not mounted"
+[[ -f "$SKYFIRE_DIR/CMakeLists.txt" ]] || fail "SkyFire checkout is not mounted"
+[[ -d "$SKYFIRE_DIR/modules" ]] || fail "SkyFire modules/ directory not found"
 
-if [[ "$TARGET" != "all" && ! -d "${LOCAL_MODULES}/${TARGET}" ]]; then
-  echo "Available modules:"
-  find "$LOCAL_MODULES" \
-    -mindepth 1 \
-    -maxdepth 1 \
-    -type d \
-    -printf '  %f\n' | sort
-
-  fail "module '${TARGET}' does not exist"
-fi
-
-if [[ ! -d "${SKYFIRE_DIR}/.git" ]]; then
-  log "Cloning SkyFire ${SKYFIRE_BRANCH}"
-
-  # SKYFIRE_DIR is the root of a Docker volume.
-  # Clean its contents without removing the mount point itself.
-  find "$SKYFIRE_DIR" \
-    -mindepth 1 \
-    -maxdepth 1 \
-    -exec rm -rf {} +
-
-  git clone \
-    --branch "${SKYFIRE_BRANCH}" \
-    --single-branch \
-    "${SKYFIRE_REPO}" \
-    "$SKYFIRE_DIR"
-else
-  log "Updating SkyFire ${SKYFIRE_BRANCH}"
-
-  git -C "$SKYFIRE_DIR" fetch origin "${SKYFIRE_BRANCH}"
-  git -C "$SKYFIRE_DIR" checkout -f "${SKYFIRE_BRANCH}"
-  git -C "$SKYFIRE_DIR" reset --hard "origin/${SKYFIRE_BRANCH}"
-fi
-
-[[ -d "${SKYFIRE_DIR}/modules" ]] || fail "SkyFire modules/ directory not found"
-
-log "Installing modules"
-
-if [[ "$TARGET" == "all" ]]; then
-  found=0
-
-  while IFS= read -r -d '' module; do
-    found=1
-    name="$(basename "$module")"
-
-    echo "  + $name"
-
-    rm -rf "${SKYFIRE_DIR}/modules/${name}"
-    cp -a "$module" "${SKYFIRE_DIR}/modules/${name}"
-  done < <(
-    find "$LOCAL_MODULES" \
-      -mindepth 1 \
-      -maxdepth 1 \
-      -type d \
-      -print0 | sort -z
-  )
-
-  [[ "$found" -eq 1 ]] || fail "no modules found in modules/"
-else
-  echo "  + $TARGET"
-
-  rm -rf "${SKYFIRE_DIR}/modules/${TARGET}"
-  cp -a \
-    "${LOCAL_MODULES}/${TARGET}" \
-    "${SKYFIRE_DIR}/modules/${TARGET}"
+if [[ "$TARGET" != "all" ]]; then
+  [[ "$TARGET" != "_template" ]] || fail "_template is not a build target"
+  [[ -d "$SKYFIRE_DIR/modules/$TARGET/src" ]] || fail "module '$TARGET' is not mounted"
 fi
 
 log "Configuring SkyFire"
@@ -99,7 +36,8 @@ cmake \
   -DBOOST_ROOT="${BOOST_ROOT}" \
   -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT_DIR}" \
   -DTOOLS=OFF \
-  -DNOPCH=1 \
+  -DUSE_COREPCH=ON \
+  -DUSE_SCRIPTPCH=ON \
   -DSCRIPTS=ON
 
 log "Building modules"
