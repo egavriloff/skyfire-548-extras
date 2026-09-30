@@ -35,6 +35,8 @@ jobs:
             cmake \
             ninja-build \
             ccache \
+            gcc-14 \
+            g++-14 \
             libmysqlclient-dev \
             libreadline-dev \
             zlib1g-dev
@@ -144,6 +146,8 @@ jobs:
             -B build \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-14 \
+            -DCMAKE_CXX_COMPILER=g++-14 \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBOOST_ROOT="$BOOST_ROOT" \
