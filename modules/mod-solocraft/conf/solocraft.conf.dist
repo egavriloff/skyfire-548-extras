@@ -1,0 +1,87 @@
+###################################################################################################
+# SoloCraft
+###################################################################################################
+
+Solocraft.Enable = 1
+Solocraft.Announce = 1
+SoloCraft.Debuff.Enable = 1
+
+# Stat bonus added per difficulty point.
+SoloCraft.Stats.Mult = 100.0
+
+# Spell power bonus: player level * this value * difficulty.
+SoloCraft.Spellpower.Mult = 2.5
+
+# Class balance weight (percent, max 100).
+SoloCraft.Warrior = 100
+SoloCraft.Paladin = 100
+SoloCraft.Hunter = 100
+SoloCraft.Rogue = 100
+SoloCraft.Priest = 100
+SoloCraft.Death.Knight = 100
+SoloCraft.Shaman = 100
+SoloCraft.Mage = 100
+SoloCraft.Warlock = 100
+SoloCraft.Monk = 100
+SoloCraft.Druid = 100
+
+Solocraft.XP.Enabled = 1
+Solocraft.XP.Balancing.Enabled = 1
+Solocraft.Max.Level.Diff = 10
+Solocraft.Dungeon.Level = 90
+
+# Generic fallback difficulty values.
+Solocraft.Dungeon = 5.0
+Solocraft.Heroic = 10.0
+Solocraft.Raid25 = 25.0
+Solocraft.Raid40 = 40.0
+Solocraft.ArgentTournamentRaidH10 = 10.0
+Solocraft.ArgentTournamentRaidH25 = 25.0
+
+# Mists of Pandaria instance level overrides.
+Solocraft.ShadoPanMonastery.Level = 90
+Solocraft.Scholomance.Level = 90
+Solocraft.ScarletMonastery.Level = 90
+Solocraft.Mogu'shanPalace.Level = 90
+Solocraft.Mogu'shanVaults.Level = 90
+Solocraft.SiegeOfOrgrimmar.Level = 90
+Solocraft.ThroneOfThunder.Level = 90
+Solocraft.HeartOfFear.Level = 90
+Solocraft.TerraceOfEndlessSpring.Level = 90
+Solocraft.ScarletHalls.Level = 90
+Solocraft.GateOfTheSettingSun.Level = 90
+Solocraft.SiegeOfNiuzaoTemple.Level = 90
+Solocraft.TempleOfTheJadeSerpent.Level = 90
+Solocraft.StormstoutBrewery.Level = 90
+
+# Mists of Pandaria normal multipliers.
+Solocraft.ShadoPanMonastery = 5.0
+Solocraft.Scholomance = 5.0
+Solocraft.ScarletMonastery = 5.0
+Solocraft.Mogu'shanPalace = 5.0
+Solocraft.Mogu'shanVaults = 10.0
+Solocraft.SiegeOfOrgrimmar = 10.0
+Solocraft.ThroneOfThunder = 10.0
+Solocraft.HeartOfFear = 10.0
+Solocraft.TerraceOfEndlessSpring = 10.0
+Solocraft.ScarletHalls = 5.0
+Solocraft.GateOfTheSettingSun = 5.0
+Solocraft.SiegeOfNiuzaoTemple = 5.0
+Solocraft.TempleOfTheJadeSerpent = 5.0
+Solocraft.StormstoutBrewery = 5.0
+
+# Mists of Pandaria heroic multipliers.
+Solocraft.ShadoPanMonasteryH = 5.0
+Solocraft.ScholomanceH = 5.0
+Solocraft.ScarletMonasteryH = 5.0
+Solocraft.Mogu'shanPalaceH = 5.0
+Solocraft.Mogu'shanVaultsH = 25.0
+Solocraft.SiegeOfOrgrimmarH = 25.0
+Solocraft.ThroneOfThunderH = 25.0
+Solocraft.HeartOfFearH = 25.0
+Solocraft.TerraceOfEndlessSpringH = 25.0
+Solocraft.ScarletHallsH = 5.0
+Solocraft.GateOfTheSettingSunH = 5.0
+Solocraft.SiegeOfNiuzaoTempleH = 5.0
+Solocraft.TempleOfTheJadeSerpentH = 5.0
+Solocraft.StormstoutBreweryH = 5.0
