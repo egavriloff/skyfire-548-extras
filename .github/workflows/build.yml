@@ -129,7 +129,6 @@ jobs:
 
             name="$(basename "$module")"
 
-            # Template is not built.
             [ "$name" = "_template" ] && continue
 
             echo "Installing $name"
@@ -142,11 +141,6 @@ jobs:
 
       - name: Configure SkyFire
         working-directory: skyfire
-        env:
-          BOOST_ROOT: ${{ env.HOME }}/.local/boost
-          OPENSSL_ROOT_DIR: ${{ env.HOME }}/.local/openssl
-          OPENSSL_MODULES: ${{ env.HOME }}/.local/openssl/lib64/ossl-modules
-          CCACHE_DIR: ${{ env.HOME }}/.cache/ccache
         run: |
           cmake \
             -S . \
@@ -157,13 +151,11 @@ jobs:
             -DCMAKE_CXX_COMPILER=g++-14 \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DBOOST_ROOT="$BOOST_ROOT" \
-            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
+            -DBOOST_ROOT="$HOME/.local/boost" \
+            -DOPENSSL_ROOT_DIR="$HOME/.local/openssl"
 
       - name: Build SkyFire + modules
         working-directory: skyfire
-        env:
-          CCACHE_DIR: ${{ env.HOME }}/.cache/ccache
         run: |
           cmake --build build --parallel "$(nproc)"
 
