@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "module-extended.schema.json",
+  "title": "SkyFire 5.4.8 Module",
+  "type": "object",
+  "allOf": [{"$ref": "module-base.schema.json"}],
+  "properties": {"schema": {"const": "module-extended"}},
+  "unevaluatedProperties": false
+}

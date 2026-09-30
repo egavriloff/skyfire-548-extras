@@ -1,3 +1,5 @@
+schema: module-extended
+
 name: Example Module
 slug: mod-example
 status: wip

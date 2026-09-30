@@ -1,3 +1,5 @@
+schema: module-ai
+
 name: NPC Teleport
 slug: npc-teleport
 status: working

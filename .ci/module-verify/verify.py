@@ -7,12 +7,18 @@ from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
 
 ROOT = Path(__file__).resolve().parents[2]
 CI_DIR = ROOT / ".ci"
 MODULES_DIR = ROOT / "modules"
 TEMPLATE_DIR = MODULES_DIR / "_template"
-SCHEMA_FILE = CI_DIR / "schemas" / "module.schema.json"
+SCHEMAS_DIR = CI_DIR / "schemas"
+
+SCHEMAS = {
+    "module-extended": SCHEMAS_DIR / "module-extended.schema.json",
+    "module-ai": SCHEMAS_DIR / "module-ai.schema.json",
+}
 
 
 class Verification:
@@ -52,6 +58,31 @@ def has_files(directory: Path) -> bool:
     return any(path.is_file() and path.name != ".gitkeep" for path in directory.rglob("*"))
 
 
+def load_schema_registry() -> Registry:
+    registry = Registry()
+    for schema_file in sorted(SCHEMAS_DIR.glob("*.schema.json")):
+        schema = load_json(schema_file)
+        Draft202012Validator.check_schema(schema)
+        registry = registry.with_resource(schema_file.name, Resource.from_contents(schema))
+    return registry
+
+
+def get_validator(metadata: Any, registry: Registry) -> Draft202012Validator:
+    if not isinstance(metadata, dict):
+        raise ValueError("module.yml root must be an object")
+
+    schema_name = metadata.get("schema")
+    if not isinstance(schema_name, str):
+        raise ValueError("module.yml must define a string 'schema' field")
+
+    schema_file = SCHEMAS.get(schema_name)
+    if schema_file is None:
+        supported = ", ".join(sorted(SCHEMAS))
+        raise ValueError(f"unknown module schema '{schema_name}'; supported schemas: {supported}")
+
+    return Draft202012Validator(load_json(schema_file), registry=registry)
+
+
 def validate_schema(verification: Verification, validator: Draft202012Validator, metadata: Any) -> bool:
     errors = sorted(validator.iter_errors(metadata), key=lambda error: list(error.absolute_path))
     if not errors:
@@ -73,7 +104,6 @@ def verify_component(
     require_files: bool = True,
 ) -> None:
     directory = module_dir / relative_directory
-
     if declared:
         if not directory.is_dir():
             verification.error(f"{label} is declared but {relative_directory}/ does not exist")
@@ -83,7 +113,6 @@ def verify_component(
             return
         verification.ok(f"{label} declared and present")
         return
-
     if directory.exists():
         verification.error(f"{relative_directory}/ exists but {label} is not declared")
     else:
@@ -92,7 +121,7 @@ def verify_component(
 
 def verify_module(
     verification: Verification,
-    validator: Draft202012Validator,
+    registry: Registry,
     module_dir: Path,
     *,
     template: bool = False,
@@ -100,7 +129,6 @@ def verify_module(
     print(f"\n{'Template' if template else 'Module'}: {relative(module_dir)}")
     metadata_file = module_dir / "module.yml"
     readme_file = module_dir / "README.md"
-
     if not metadata_file.is_file():
         verification.error("module.yml is missing")
         return
@@ -113,8 +141,16 @@ def verify_module(
         verification.error(f"cannot read module.yml: {error}")
         return
 
+    try:
+        validator = get_validator(metadata, registry)
+    except (OSError, json.JSONDecodeError, ValueError) as error:
+        verification.error(f"cannot select module schema: {error}")
+        return
+
     if not validate_schema(verification, validator, metadata):
         return
+
+    verification.ok(f"schema selected ({metadata['schema']})")
 
     if not readme_file.is_file():
         verification.error("README.md is missing")
@@ -131,16 +167,13 @@ def verify_module(
             verification.ok(f"slug matches directory ({slug})")
 
     components = metadata["components"]
-
     verify_component(verification, module_dir, "source", components["source"], "src", require_files=not template)
     verify_component(verification, module_dir, "config", components["config"], "conf", require_files=not template)
     verify_component(verification, module_dir, "patches", components["patches"], "patches", require_files=not template)
 
     sql = components["sql"]
     verify_component(verification, module_dir, "auth SQL", sql["auth"], "sql/auth", require_files=not template)
-    verify_component(
-        verification, module_dir, "characters SQL", sql["characters"], "sql/characters", require_files=not template
-    )
+    verify_component(verification, module_dir, "characters SQL", sql["characters"], "sql/characters", require_files=not template)
     verify_component(verification, module_dir, "world SQL", sql["world"], "sql/world", require_files=not template)
 
     if not template and metadata["status"] == "working":
@@ -166,21 +199,26 @@ def main() -> int:
 
     print("SkyFire 5.4.8 Modules — Repository Verification")
     print("=" * 48)
-
     print("\nRepository")
-    if not SCHEMA_FILE.is_file():
-        verification.error(f"schema is missing: {relative(SCHEMA_FILE)}")
+
+    if not SCHEMAS_DIR.is_dir():
+        verification.error(f"schemas directory is missing: {relative(SCHEMAS_DIR)}")
         return finish(verification)
 
     try:
-        schema = load_json(SCHEMA_FILE)
-        Draft202012Validator.check_schema(schema)
-        validator = Draft202012Validator(schema)
-    except (OSError, json.JSONDecodeError, Exception) as error:
+        registry = load_schema_registry()
+    except Exception as error:
         verification.error(f"invalid module schema: {error}")
         return finish(verification)
 
-    verification.ok("module schema loaded and valid")
+    for schema_name, schema_file in SCHEMAS.items():
+        if not schema_file.is_file():
+            verification.error(f"schema is missing: {relative(schema_file)}")
+            continue
+        verification.ok(f"schema loaded and valid ({schema_name})")
+
+    if verification.errors:
+        return finish(verification)
 
     if not MODULES_DIR.is_dir():
         verification.error("modules/ directory is missing")
@@ -189,7 +227,7 @@ def main() -> int:
     if not TEMPLATE_DIR.is_dir():
         verification.error("modules/_template/ directory is missing")
     else:
-        verify_module(verification, validator, TEMPLATE_DIR, template=True)
+        verify_module(verification, registry, TEMPLATE_DIR, template=True)
 
     modules = sorted(
         directory
@@ -204,7 +242,7 @@ def main() -> int:
         print("  No modules found")
     else:
         for module_dir in modules:
-            verify_module(verification, validator, module_dir)
+            verify_module(verification, registry, module_dir)
 
     return finish(verification)
 

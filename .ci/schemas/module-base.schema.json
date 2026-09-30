@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "module-base.schema.json",
+  "title": "SkyFire 5.4.8 Module Base",
+  "type": "object",
+  "required": ["schema", "name", "slug", "status", "target", "upstream", "components", "testing"],
+  "properties": {
+    "schema": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "slug": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "status": {"type": "string", "enum": ["wip", "testing", "working", "broken"]},
+    "target": {"type": "object", "additionalProperties": false, "required": ["core", "repository"], "properties": {"core": {"const": "ProjectSkyfire/SkyFire_548"}, "repository": {"const": "https://github.com/ProjectSkyfire/SkyFire_548"}}},
+    "upstream": {"type": "object", "additionalProperties": false, "required": ["name", "repository", "revision", "author", "license"], "properties": {"name": {"type": ["string", "null"]}, "repository": {"type": ["string", "null"]}, "revision": {"type": ["string", "null"]}, "author": {"type": ["string", "null"]}, "license": {"type": ["string", "null"]}}},
+    "components": {"type": "object", "additionalProperties": false, "required": ["source", "config", "patches", "sql"], "properties": {"source": {"type": "boolean"}, "config": {"type": "boolean"}, "patches": {"type": "boolean"}, "sql": {"type": "object", "additionalProperties": false, "required": ["auth", "characters", "world"], "properties": {"auth": {"type": "boolean"}, "characters": {"type": "boolean"}, "world": {"type": "boolean"}}}}},
+    "testing": {"type": "object", "additionalProperties": false, "required": ["build", "startup", "ingame"], "properties": {"build": {"type": "boolean"}, "startup": {"type": "boolean"}, "ingame": {"type": "boolean"}}}
+  }
+}
