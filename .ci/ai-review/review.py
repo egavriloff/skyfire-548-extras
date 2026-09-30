@@ -2,14 +2,24 @@ from pathlib import Path
 import subprocess
 import sys
 
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+
 ROOT = Path(__file__).resolve().parents[2]
 MODULES = ROOT / "modules"
 
 AI_REVIEW_DIR = ROOT / ".ci" / "ai-review"
 PROMPT_FILE = AI_REVIEW_DIR / "prompt.md"
+DATA_PROMPT_FILE = AI_REVIEW_DIR / "prompt-data.md"
 
 AI_DIR = ROOT / ".ai"
-MODEL = AI_DIR / "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+
+CODE_MODEL = AI_DIR / "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+DATA_MODEL = AI_DIR / "qwen2.5-coder-0.5b-instruct-q4_k_m.gguf"
+
 LLAMA = AI_DIR / "llama-cli"
 
 ALLOWED_SUFFIXES = {
@@ -32,10 +42,54 @@ MAX_CHUNK_CHARS = 40_000
 MAX_OUTPUT_TOKENS = 512
 CONTEXT_SIZE = 32_768
 THREADS = 4
-REVIEW_TIMEOUT = 600
+
+CODE_REVIEW_TIMEOUT = 300
+DATA_REVIEW_TIMEOUT = 300
 
 
-def collect_module_files(module: Path) -> list[tuple[str, str]]:
+def load_module_config(module: Path) -> dict:
+    module_file = module / "module.yml"
+
+    if not module_file.is_file():
+        return {}
+
+    if yaml is None:
+        raise RuntimeError(
+            "PyYAML is required to read module.yml"
+        )
+
+    with module_file.open("r", encoding="utf-8") as file:
+        config = yaml.safe_load(file)
+
+    if not isinstance(config, dict):
+        return {}
+
+    return config
+
+
+def get_data_files(module: Path) -> set[str]:
+    config = load_module_config(module)
+
+    ai_review = config.get("ai_review", {})
+
+    if not isinstance(ai_review, dict):
+        return set()
+
+    data_files = ai_review.get("data", [])
+
+    if not isinstance(data_files, list):
+        return set()
+
+    return {
+        str(Path(path))
+        for path in data_files
+        if isinstance(path, str)
+    }
+
+
+def collect_module_files(
+    module: Path,
+) -> list[tuple[str, str]]:
     files = []
 
     for path in sorted(module.rglob("*")):
@@ -67,12 +121,17 @@ def format_file(name: str, content: str) -> str:
     )
 
 
-def split_large_file(name: str, content: str) -> list[str]:
+def split_large_file(
+    name: str,
+    content: str,
+) -> list[str]:
     chunks = []
     part_number = 1
 
     for offset in range(0, len(content), MAX_CHUNK_CHARS):
-        part = content[offset:offset + MAX_CHUNK_CHARS]
+        part = content[
+            offset:offset + MAX_CHUNK_CHARS
+        ]
 
         chunks.append(
             format_file(
@@ -86,7 +145,9 @@ def split_large_file(name: str, content: str) -> list[str]:
     return chunks
 
 
-def build_chunks(files: list[tuple[str, str]]) -> list[str]:
+def build_chunks(
+    files: list[tuple[str, str]],
+) -> list[str]:
     chunks = []
     current_parts = []
     current_size = 0
@@ -100,12 +161,15 @@ def build_chunks(files: list[tuple[str, str]]) -> list[str]:
                 current_parts = []
                 current_size = 0
 
-            chunks.extend(split_large_file(name, content))
+            chunks.extend(
+                split_large_file(name, content)
+            )
             continue
 
         if (
             current_parts
-            and current_size + len(formatted) > MAX_CHUNK_CHARS
+            and current_size + len(formatted)
+            > MAX_CHUNK_CHARS
         ):
             chunks.append("".join(current_parts))
             current_parts = []
@@ -153,14 +217,20 @@ def review_chunk(
     chunk: str,
     chunk_index: int,
     chunk_count: int,
+    model: Path,
+    timeout: int,
+    review_type: str,
 ) -> tuple[bool, str]:
     print()
     print("-" * 72)
     print(
-        f"CHUNK {chunk_index}/{chunk_count} "
+        f"{review_type.upper()} CHUNK "
+        f"{chunk_index}/{chunk_count} "
         f"({len(chunk)} characters)"
     )
     print("-" * 72)
+    print()
+    print(f"Model: {model.name}")
     print()
 
     prompt = f"""
@@ -168,7 +238,7 @@ def review_chunk(
 
 MODULE: {module.name}
 
-This is chunk {chunk_index} of {chunk_count} from the module.
+This is {review_type} chunk {chunk_index} of {chunk_count}.
 
 Review ONLY the content present in this chunk.
 
@@ -185,7 +255,7 @@ Do not assume that content from other chunks is available.
     command = [
         str(LLAMA),
         "-m",
-        str(MODEL),
+        str(model),
         "-p",
         prompt,
         "-n",
@@ -207,12 +277,13 @@ Do not assume that content from other chunks is available.
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            timeout=REVIEW_TIMEOUT,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         message = (
-            f"{module.name} chunk {chunk_index}/{chunk_count}: "
-            f"timed out after {REVIEW_TIMEOUT} seconds"
+            f"{module.name} {review_type} "
+            f"chunk {chunk_index}/{chunk_count}: "
+            f"timed out after {timeout} seconds"
         )
 
         print(f"AI review failed: {message}")
@@ -223,8 +294,10 @@ Do not assume that content from other chunks is available.
 
     if result.returncode != 0:
         message = (
-            f"{module.name} chunk {chunk_index}/{chunk_count}: "
-            f"llama-cli exited with code {result.returncode}"
+            f"{module.name} {review_type} "
+            f"chunk {chunk_index}/{chunk_count}: "
+            f"llama-cli exited with code "
+            f"{result.returncode}"
         )
 
         print(f"AI review failed: {message}")
@@ -236,7 +309,8 @@ Do not assume that content from other chunks is available.
 
     if not review_output:
         message = (
-            f"{module.name} chunk {chunk_index}/{chunk_count}: "
+            f"{module.name} {review_type} "
+            f"chunk {chunk_index}/{chunk_count}: "
             f"no valid RESULT found"
         )
 
@@ -253,40 +327,124 @@ Do not assume that content from other chunks is available.
     return True, ""
 
 
-def review_module(module: Path, system_prompt: str) -> list[str]:
-    print()
-    print("=" * 72)
-    print(f"AI REVIEW: {module.name}")
-    print("=" * 72)
-    print()
-
-    files = collect_module_files(module)
-
+def review_chunks(
+    module: Path,
+    files: list[tuple[str, str]],
+    system_prompt: str,
+    model: Path,
+    timeout: int,
+    review_type: str,
+) -> list[str]:
     if not files:
-        return [
-            f"{module.name}: no reviewable files found"
-        ]
+        print()
+        print(f"No {review_type} files to review.")
+        return []
 
     chunks = build_chunks(files)
 
+    print()
     print(
-        f"Collected {len(files)} files "
-        f"into {len(chunks)} chunk(s)."
+        f"{review_type.capitalize()} review: "
+        f"{len(files)} file(s) -> "
+        f"{len(chunks)} chunk(s)"
     )
 
     failures = []
 
-    for index, chunk in enumerate(chunks, start=1):
+    for index, chunk in enumerate(
+        chunks,
+        start=1,
+    ):
         success, message = review_chunk(
             module,
             system_prompt,
             chunk,
             index,
             len(chunks),
+            model,
+            timeout,
+            review_type,
         )
 
         if not success:
             failures.append(message)
+
+    return failures
+
+
+def review_module(
+    module: Path,
+    code_prompt: str,
+    data_prompt: str,
+) -> list[str]:
+    print()
+    print("=" * 72)
+    print(f"AI REVIEW: {module.name}")
+    print("=" * 72)
+
+    files = collect_module_files(module)
+    data_file_names = get_data_files(module)
+
+    code_files = []
+    data_files = []
+
+    for name, content in files:
+        if name in data_file_names:
+            data_files.append((name, content))
+        else:
+            code_files.append((name, content))
+
+    print()
+    print(f"Collected files: {len(files)}")
+    print(f"Code files:      {len(code_files)}")
+    print(f"Data files:      {len(data_files)}")
+
+    if data_file_names:
+        print()
+        print("Configured data files:")
+
+        for name in sorted(data_file_names):
+            print(f"  - {name}")
+
+    missing_data_files = (
+        data_file_names
+        - {name for name, _ in data_files}
+    )
+
+    failures = []
+
+    if missing_data_files:
+        for name in sorted(missing_data_files):
+            message = (
+                f"{module.name}: configured data file "
+                f"not found: {name}"
+            )
+
+            print()
+            print(f"AI review failed: {message}")
+            failures.append(message)
+
+    failures.extend(
+        review_chunks(
+            module,
+            code_files,
+            code_prompt,
+            CODE_MODEL,
+            CODE_REVIEW_TIMEOUT,
+            "code",
+        )
+    )
+
+    failures.extend(
+        review_chunks(
+            module,
+            data_files,
+            data_prompt,
+            DATA_MODEL,
+            DATA_REVIEW_TIMEOUT,
+            "data",
+        )
+    )
 
     return failures
 
@@ -310,17 +468,18 @@ def main() -> int:
         print(f"Invalid module name: {module_name}")
         return 1
 
-    if not MODEL.is_file():
-        print(f"Model not found: {MODEL}")
-        return 1
+    required_files = (
+        CODE_MODEL,
+        DATA_MODEL,
+        LLAMA,
+        PROMPT_FILE,
+        DATA_PROMPT_FILE,
+    )
 
-    if not LLAMA.is_file():
-        print(f"llama-cli not found: {LLAMA}")
-        return 1
-
-    if not PROMPT_FILE.is_file():
-        print(f"Prompt not found: {PROMPT_FILE}")
-        return 1
+    for path in required_files:
+        if not path.is_file():
+            print(f"Required file not found: {path}")
+            return 1
 
     if not MODULES.is_dir():
         print(f"Modules directory not found: {MODULES}")
@@ -332,14 +491,23 @@ def main() -> int:
         print(f"Module not found: {module_name}")
         return 1
 
-    system_prompt = PROMPT_FILE.read_text(
+    code_prompt = PROMPT_FILE.read_text(
         encoding="utf-8"
     )
 
-    failures = review_module(
-        module,
-        system_prompt,
+    data_prompt = DATA_PROMPT_FILE.read_text(
+        encoding="utf-8"
     )
+
+    try:
+        failures = review_module(
+            module,
+            code_prompt,
+            data_prompt,
+        )
+    except RuntimeError as error:
+        print(f"AI review failed: {error}")
+        return 1
 
     print()
     print("=" * 72)
@@ -357,7 +525,7 @@ def main() -> int:
 
         return 1
 
-    print("All module chunks reviewed successfully.")
+    print("All module reviews completed successfully.")
 
     return 0
 

@@ -26,3 +26,7 @@ testing:
   build: true
   startup: true
   ingame: true
+
+ai_review:
+  data:
+    - src/teleport_data.cpp

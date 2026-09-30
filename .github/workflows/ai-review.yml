@@ -32,15 +32,15 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 <<'PY'
           import json
           import os
+          import subprocess
           from pathlib import Path
 
-          root = Path(".")
-          modules_dir = root / "modules"
+          modules_dir = Path("modules")
 
           all_modules = sorted(
               path.name
@@ -54,8 +54,6 @@ jobs:
           if event_name == "workflow_dispatch":
               selected = all_modules
           else:
-              import subprocess
-
               base_sha = os.environ["BASE_SHA"]
               head_sha = os.environ["HEAD_SHA"]
 
@@ -101,7 +99,10 @@ jobs:
 
                   selected = sorted(changed_modules)
 
-          modules_json = json.dumps(selected, separators=(",", ":"))
+          modules_json = json.dumps(
+              selected,
+              separators=(",", ":"),
+          )
 
           print("Modules selected for AI review:")
 
@@ -111,11 +112,20 @@ jobs:
           else:
               print("  None.")
 
-          output_file = Path(os.environ["GITHUB_OUTPUT"])
+          output_file = Path(
+              os.environ["GITHUB_OUTPUT"]
+          )
 
-          with output_file.open("a", encoding="utf-8") as output:
-              output.write(f"modules={modules_json}\n")
-              output.write(f"count={len(selected)}\n")
+          with output_file.open(
+              "a",
+              encoding="utf-8",
+          ) as output:
+              output.write(
+                  f"modules={modules_json}\n"
+              )
+              output.write(
+                  f"count={len(selected)}\n"
+              )
           PY
 
   review:
@@ -125,7 +135,7 @@ jobs:
     if: needs.detect.outputs.count != '0'
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     strategy:
       fail-fast: false
@@ -135,39 +145,70 @@ jobs:
 
     env:
       AI_DIR: ${{ github.workspace }}/.ai
-      MODEL_FILE: qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
-      MODEL_URL: https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+
+      CODE_MODEL_FILE: qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+      CODE_MODEL_URL: https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+
+      DATA_MODEL_FILE: qwen2.5-coder-0.5b-instruct-q4_k_m.gguf
+      DATA_MODEL_URL: https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --user PyYAML
+
       - name: Prepare AI directory
         run: |
           mkdir -p "$AI_DIR"
 
-      - name: Restore model cache
-        id: cache-model
+      - name: Restore code model cache
+        id: cache-code-model
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.AI_DIR }}/${{ env.MODEL_FILE }}
+          path: ${{ env.AI_DIR }}/${{ env.CODE_MODEL_FILE }}
           key: qwen25-coder-1.5b-q4km-v1
 
-      - name: Download model
-        if: steps.cache-model.outputs.cache-hit != 'true'
+      - name: Download code model
+        if: steps.cache-code-model.outputs.cache-hit != 'true'
         run: |
           curl -L \
             --fail \
             --retry 3 \
-            "$MODEL_URL" \
-            -o "$AI_DIR/$MODEL_FILE"
+            "$CODE_MODEL_URL" \
+            -o "$AI_DIR/$CODE_MODEL_FILE"
 
-      - name: Save model cache
-        if: steps.cache-model.outputs.cache-hit != 'true'
+      - name: Save code model cache
+        if: steps.cache-code-model.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: ${{ env.AI_DIR }}/${{ env.MODEL_FILE }}
+          path: ${{ env.AI_DIR }}/${{ env.CODE_MODEL_FILE }}
           key: qwen25-coder-1.5b-q4km-v1
+
+      - name: Restore data model cache
+        id: cache-data-model
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.AI_DIR }}/${{ env.DATA_MODEL_FILE }}
+          key: qwen25-coder-0.5b-q4km-v1
+
+      - name: Download data model
+        if: steps.cache-data-model.outputs.cache-hit != 'true'
+        run: |
+          curl -L \
+            --fail \
+            --retry 3 \
+            "$DATA_MODEL_URL" \
+            -o "$AI_DIR/$DATA_MODEL_FILE"
+
+      - name: Save data model cache
+        if: steps.cache-data-model.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.AI_DIR }}/${{ env.DATA_MODEL_FILE }}
+          key: qwen25-coder-0.5b-q4km-v1
 
       - name: Restore llama.cpp CLI cache
         id: cache-llama
@@ -224,18 +265,20 @@ jobs:
       - name: Verify AI runtime
         run: |
           test -x "$AI_DIR/llama-cli"
-          test -f "$AI_DIR/$MODEL_FILE"
+          test -f "$AI_DIR/$CODE_MODEL_FILE"
+          test -f "$AI_DIR/$DATA_MODEL_FILE"
 
           "$AI_DIR/llama-cli" --version
-          ls -lh "$AI_DIR/$MODEL_FILE"
+
+          echo
+          echo "Models:"
+          ls -lh \
+            "$AI_DIR/$CODE_MODEL_FILE" \
+            "$AI_DIR/$DATA_MODEL_FILE"
 
           echo
           echo "Module:"
           echo "${{ matrix.module }}"
-
-          echo
-          echo "AI review files:"
-          ls -lah .ci/ai-review
 
       - name: Review ${{ matrix.module }}
         run: |
