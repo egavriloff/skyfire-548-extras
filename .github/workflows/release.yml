@@ -30,25 +30,71 @@ jobs:
       - name: Check Build Modules
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.sha }}
+          CURRENT_SHA: ${{ github.sha }}
         run: |
-          echo "Checking Build Modules for commit $SHA"
+          echo "Current commit: $CURRENT_SHA"
 
-          CONCLUSION="$(
+          BUILD="$(
             gh run list \
               --workflow build.yml \
-              --commit "$SHA" \
+              --branch main \
+              --status success \
               --limit 1 \
-              --json conclusion \
-              --jq '.[0].conclusion // empty'
+              --json headSha,databaseId \
+              --jq '.[0] // empty'
           )"
 
-          if [ "$CONCLUSION" != "success" ]; then
-            echo "No successful Build Modules run found for commit $SHA"
+          if [ -z "$BUILD" ]; then
+            echo "No successful Build Modules run found"
             exit 1
           fi
 
-          echo "Build Modules passed for commit $SHA"
+          BUILD_SHA="$(echo "$BUILD" | jq -r '.headSha')"
+          BUILD_ID="$(echo "$BUILD" | jq -r '.databaseId')"
+
+          echo "Last successful build:"
+          echo "  Run:    $BUILD_ID"
+          echo "  Commit: $BUILD_SHA"
+
+          if [ "$BUILD_SHA" = "$CURRENT_SHA" ]; then
+            echo "Current commit has already passed Build Modules"
+            exit 0
+          fi
+
+          if ! git merge-base --is-ancestor "$BUILD_SHA" "$CURRENT_SHA"; then
+            echo "Last successful build is not an ancestor of current commit"
+            echo "Run Build Modules again"
+            exit 1
+          fi
+
+          echo
+          echo "Changes since successful build:"
+
+          git diff \
+            --name-only \
+            "$BUILD_SHA" \
+            "$CURRENT_SHA"
+
+          BUILD_CHANGES="$(
+            git diff \
+              --name-only \
+              "$BUILD_SHA" \
+              "$CURRENT_SHA" \
+              -- 'modules/'
+          )"
+
+          if [ -n "$BUILD_CHANGES" ]; then
+            echo
+            echo "Module changes detected since the last successful build:"
+            echo "$BUILD_CHANGES"
+            echo
+            echo "Run Build Modules again before releasing"
+            exit 1
+          fi
+
+          echo
+          echo "No module changes since successful build"
+          echo "Existing build is valid for release"
 
       # ------------------------------------------------------------
       # Version
@@ -89,7 +135,6 @@ jobs:
           fi
 
           echo "Release version: $VERSION"
-
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check tag
@@ -115,7 +160,6 @@ jobs:
             [ -d "$module" ] || continue
 
             name="$(basename "$module")"
-
             [ "$name" = "_template" ] && continue
 
             echo "Packaging $name"
