@@ -1,27 +1,80 @@
 name: Release Modules
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. v0.1.0)"
+        required: true
+        type: string
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
-  build:
-    uses: ./.github/workflows/build.yml
-
   release:
     name: Release Modules
-    needs: build
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version: $VERSION"
+            echo "Expected format: v0.1.0"
+            exit 1
+          fi
+
+      - name: Check Build Modules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          echo "Checking Build Modules for commit $SHA"
+
+          CONCLUSION="$(
+            gh run list \
+              --workflow build.yml \
+              --commit "$SHA" \
+              --limit 1 \
+              --json conclusion \
+              --jq '.[0].conclusion // empty'
+          )"
+
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "No successful Build Modules run found for commit $SHA"
+            exit 1
+          fi
+
+          echo "Build Modules passed for commit $SHA"
+
+      - name: Check tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists"
+            exit 1
+          fi
+
+      - name: Create tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git tag "$VERSION"
+          git push origin "$VERSION"
 
       - name: Package modules
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           mkdir -p dist
 
@@ -31,14 +84,18 @@ jobs:
             name="$(basename "$module")"
             [ "$name" = "_template" ] && continue
 
+            echo "Packaging $name"
+
             (
               cd modules
-              zip -r "../dist/${name}-${GITHUB_REF_NAME}.zip" "$name"
+              zip -r "../dist/${name}-${VERSION}.zip" "$name"
             )
           done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
           generate_release_notes: true
           files: dist/*.zip
