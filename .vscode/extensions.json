@@ -5,6 +5,10 @@
         "ms-vscode.makefile-tools",
         "ms-azuretools.vscode-docker",
         "ms-python.python",
-        "llvm-vs-code-extensions.vscode-clangd"
+        "llvm-vs-code-extensions.vscode-clangd",
+        "github.vscode-github-actions",
+        "visualstudioexptteam.vscodeintellicode",
+        "mtxr.sqltools",
+        "ms-vscode.cmake-tools"
     ]
 }
