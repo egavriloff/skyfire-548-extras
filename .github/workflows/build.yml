@@ -9,7 +9,7 @@ permissions:
 
 env:
   BOOST_VERSION: "1.91.0"
-  OPENSSL_VERSION: "4.0.0"
+  OPENSSL_VERSION: "4.0.1"
 
 jobs:
   build:
@@ -90,7 +90,8 @@ jobs:
 
           ./Configure \
             --prefix="$HOME/.local/openssl" \
-            --openssldir="$HOME/.local/openssl"
+            --openssldir="$HOME/.local/openssl" \
+            enable-legacy
 
           make -j"$(nproc)"
           make install_sw
@@ -139,6 +140,7 @@ jobs:
         env:
           BOOST_ROOT: ${{ env.HOME }}/.local/boost
           OPENSSL_ROOT_DIR: ${{ env.HOME }}/.local/openssl
+          OPENSSL_MODULES: ${{ env.HOME }}/.local/openssl/lib64/ossl-modules
           CCACHE_DIR: ${{ env.HOME }}/.cache/ccache
         run: |
           cmake \
