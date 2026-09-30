@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -17,9 +18,7 @@ DATA_PROMPT_FILE = AI_REVIEW_DIR / "prompt-data.md"
 
 AI_DIR = ROOT / ".ai"
 
-CODE_MODEL = AI_DIR / "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
-DATA_MODEL = AI_DIR / "qwen2.5-coder-0.5b-instruct-q4_k_m.gguf"
-
+MODEL = AI_DIR / "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
 LLAMA = AI_DIR / "llama-cli"
 
 ALLOWED_SUFFIXES = {
@@ -197,30 +196,25 @@ def build_chunks(
 
 
 def extract_review_output(output: str) -> str:
-    result_position = output.rfind("RESULT:")
+    matches = list(
+        re.finditer(
+            r"(?m)^RESULT: (PASS|WARNING|ERROR)\s*$",
+            output,
+        )
+    )
 
-    if result_position == -1:
+    if not matches:
         return ""
 
-    review = output[result_position:]
+    result_match = matches[-1]
+    review = output[result_match.start():]
 
     prompt_stats_position = review.find("[ Prompt:")
 
     if prompt_stats_position != -1:
         review = review[:prompt_stats_position]
 
-    review = review.strip()
-
-    valid_results = (
-        "RESULT: PASS",
-        "RESULT: WARNING",
-        "RESULT: ERROR",
-    )
-
-    if not review.startswith(valid_results):
-        return ""
-
-    return review
+    return review.strip()
 
 
 def review_chunk(
@@ -229,7 +223,6 @@ def review_chunk(
     chunk: str,
     chunk_index: int,
     chunk_count: int,
-    model: Path,
     timeout: int,
     review_type: str,
 ) -> tuple[bool, str]:
@@ -242,7 +235,7 @@ def review_chunk(
     )
     print("-" * 72)
     print()
-    print(f"Model: {model.name}")
+    print(f"Model: {MODEL.name}")
     print()
 
     prompt = f"""
@@ -267,7 +260,7 @@ Do not assume that content from other chunks is available.
     command = [
         str(LLAMA),
         "-m",
-        str(model),
+        str(MODEL),
         "-p",
         prompt,
         "-n",
@@ -343,7 +336,6 @@ def review_chunks(
     module: Path,
     files: list[tuple[str, str]],
     system_prompt: str,
-    model: Path,
     timeout: int,
     review_type: str,
     max_chunk_chars: int,
@@ -377,7 +369,6 @@ def review_chunks(
             chunk,
             index,
             len(chunks),
-            model,
             timeout,
             review_type,
         )
@@ -445,7 +436,6 @@ def review_module(
             module,
             code_files,
             code_prompt,
-            CODE_MODEL,
             CODE_REVIEW_TIMEOUT,
             "code",
             CODE_MAX_CHUNK_CHARS,
@@ -457,7 +447,6 @@ def review_module(
             module,
             data_files,
             data_prompt,
-            DATA_MODEL,
             DATA_REVIEW_TIMEOUT,
             "data",
             DATA_MAX_CHUNK_CHARS,
@@ -487,8 +476,7 @@ def main() -> int:
         return 1
 
     required_files = (
-        CODE_MODEL,
-        DATA_MODEL,
+        MODEL,
         LLAMA,
         PROMPT_FILE,
         DATA_PROMPT_FILE,
