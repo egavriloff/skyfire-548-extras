@@ -37,7 +37,9 @@ ALLOWED_SUFFIXES = {
 }
 
 MAX_FILE_SIZE = 100_000
-MAX_CHUNK_CHARS = 40_000
+
+CODE_MAX_CHUNK_CHARS = 40_000
+DATA_MAX_CHUNK_CHARS = 12_000
 
 MAX_OUTPUT_TOKENS = 512
 CONTEXT_SIZE = 32_768
@@ -124,13 +126,18 @@ def format_file(name: str, content: str) -> str:
 def split_large_file(
     name: str,
     content: str,
+    max_chunk_chars: int,
 ) -> list[str]:
     chunks = []
     part_number = 1
 
-    for offset in range(0, len(content), MAX_CHUNK_CHARS):
+    for offset in range(
+        0,
+        len(content),
+        max_chunk_chars,
+    ):
         part = content[
-            offset:offset + MAX_CHUNK_CHARS
+            offset:offset + max_chunk_chars
         ]
 
         chunks.append(
@@ -147,6 +154,7 @@ def split_large_file(
 
 def build_chunks(
     files: list[tuple[str, str]],
+    max_chunk_chars: int,
 ) -> list[str]:
     chunks = []
     current_parts = []
@@ -155,21 +163,25 @@ def build_chunks(
     for name, content in files:
         formatted = format_file(name, content)
 
-        if len(formatted) > MAX_CHUNK_CHARS:
+        if len(formatted) > max_chunk_chars:
             if current_parts:
                 chunks.append("".join(current_parts))
                 current_parts = []
                 current_size = 0
 
             chunks.extend(
-                split_large_file(name, content)
+                split_large_file(
+                    name,
+                    content,
+                    max_chunk_chars,
+                )
             )
             continue
 
         if (
             current_parts
             and current_size + len(formatted)
-            > MAX_CHUNK_CHARS
+            > max_chunk_chars
         ):
             chunks.append("".join(current_parts))
             current_parts = []
@@ -334,13 +346,17 @@ def review_chunks(
     model: Path,
     timeout: int,
     review_type: str,
+    max_chunk_chars: int,
 ) -> list[str]:
     if not files:
         print()
         print(f"No {review_type} files to review.")
         return []
 
-    chunks = build_chunks(files)
+    chunks = build_chunks(
+        files,
+        max_chunk_chars,
+    )
 
     print()
     print(
@@ -432,6 +448,7 @@ def review_module(
             CODE_MODEL,
             CODE_REVIEW_TIMEOUT,
             "code",
+            CODE_MAX_CHUNK_CHARS,
         )
     )
 
@@ -443,6 +460,7 @@ def review_module(
             DATA_MODEL,
             DATA_REVIEW_TIMEOUT,
             "data",
+            DATA_MAX_CHUNK_CHARS,
         )
     )
 
