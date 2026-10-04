@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc-14 \
     g++-14 \
+    gdb \
     cmake \
     ninja-build \
     ccache \
@@ -51,21 +52,19 @@ RUN wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
         "/openssl-${OPENSSL_VERSION}" \
         "/openssl-${OPENSSL_VERSION}.tar.gz"
 
-ENV CC=gcc-14
-ENV CXX=g++-14
+ENV CC=/usr/bin/gcc-14
+ENV CXX=/usr/bin/g++-14
 
 ENV BOOST_ROOT=/opt/boost_1_91_0
 ENV OPENSSL_ROOT_DIR=/opt/openssl-4.0.1
-
 ENV LD_LIBRARY_PATH=/opt/openssl-4.0.1/lib64:/opt/openssl-4.0.1/lib
 
 ENV CCACHE_DIR=/cache/ccache
 ENV CCACHE_MAXSIZE=5G
 
-WORKDIR /workspace
+WORKDIR /workspace/repo
 
 COPY .ci/module-build/build-inner.sh /usr/local/bin/build-module
-
 RUN chmod +x /usr/local/bin/build-module
 
-ENTRYPOINT ["build-module"]
+CMD ["/bin/bash"]

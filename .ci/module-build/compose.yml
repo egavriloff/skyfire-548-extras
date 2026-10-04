@@ -1,16 +1,31 @@
+x-builder-common: &builder-common
+  platform: linux/amd64
+
+  build:
+    context: ../..
+    dockerfile: .ci/module-build/Dockerfile
+    platforms:
+      - linux/amd64
+
+  working_dir: /workspace/repo
+
+  volumes:
+    - ../..:/workspace/repo
+    - skyfire-ccache:/cache/ccache
+
+  environment:
+    CCACHE_DIR: /cache/ccache
+    CCACHE_MAXSIZE: 5G
+
 services:
   builder:
-    platform: linux/amd64
+    <<: *builder-common
+    entrypoint: ["/usr/local/bin/build-module"]
 
-    build:
-      context: ../..
-      dockerfile: .ci/module-build/Dockerfile
-      platforms:
-        - linux/amd64
-
-    volumes:
-      - ../../.skyfire/SkyFire_548:/workspace/skyfire
-      - skyfire-ccache:/cache/ccache
+  ide:
+    <<: *builder-common
+    entrypoint: ["/bin/bash", "-lc"]
+    command: ["trap : TERM INT; sleep infinity & wait"]
 
 volumes:
   skyfire-ccache:

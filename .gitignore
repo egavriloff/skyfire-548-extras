@@ -1,3 +1,6 @@
-.venv/
-.upload/
-.skyfire/
+/.venv/
+/.devcontainer
+/.skyfire/
+/.porting/
+
+compile_commands.json
