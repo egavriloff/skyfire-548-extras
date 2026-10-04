@@ -4,7 +4,6 @@
 
 void AddSC_solocraft_system();
 
-void Addmod_solocraftScripts()
-{
-    AddSC_solocraft_system();
+void Addmod_solocraftScripts() {
+  AddSC_solocraft_system();
 }

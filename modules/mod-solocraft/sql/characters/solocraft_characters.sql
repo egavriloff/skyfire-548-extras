@@ -1,8 +1,0 @@
-CREATE TABLE IF NOT EXISTS `custom_solocraft_character_stats` (
-  `guid` INT UNSIGNED NOT NULL,
-  `Difficulty` FLOAT NOT NULL DEFAULT 0,
-  `GroupSize` INT UNSIGNED NOT NULL DEFAULT 1,
-  `SpellPower` INT NOT NULL DEFAULT 0,
-  `Stats` FLOAT NOT NULL DEFAULT 100,
-  PRIMARY KEY (`guid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;

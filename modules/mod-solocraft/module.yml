@@ -9,10 +9,10 @@ target:
   repository: https://github.com/ProjectSkyfire/SkyFire_548
 
 upstream:
-  name: Legends-of-Azeroth/Legends-of-Azeroth-Pandaria-5.4.8
-  repository: https://github.com/Legends-of-Azeroth/Legends-of-Azeroth-Pandaria-5.4.8
-  revision: null
-  author: null
+  name: AlexKulya/pandaria_5.4.8
+  repository: https://github.com/alexkulya/pandaria_5.4.8
+  revision: e0a20613d73e2b9324ac13a4783c724fec1d4559
+  author: AlexKulya and Pandaria contributors; Legends of Azeroth contributors
   license: GPL-2.0-or-later
 
 components:
@@ -22,10 +22,10 @@ components:
 
   sql:
     auth: false
-    characters: true
+    characters: false
     world: true
 
 testing:
-  build: false
+  build: true
   startup: false
   ingame: false
