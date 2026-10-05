@@ -1,6 +1,7 @@
 /.venv/
 /.devcontainer
-/.skyfire/
+/.skyfire/*
+!/.skyfire/SkyFire_548/
 /.porting/
 
 compile_commands.json
