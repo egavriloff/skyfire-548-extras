@@ -180,6 +180,14 @@ Check that:
 - upstream attribution/license details are preserved;
 - `module.yml` components and testing flags reflect reality.
 
+## Localization
+
+For user-facing database text, follow `.agents/localization.md`. Inspect actual
+upstream and target schemas before copying locale rows. If localization tooling
+is not yet available, follow its discovery-first implementation workflow.
+Final module-specific localization SQL belongs in the relevant module and must
+target the current SkyFire 5.4.8 schema.
+
 ## Completion Standard
 
 Compilation success is evidence only for `testing.build`.

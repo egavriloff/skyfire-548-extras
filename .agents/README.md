@@ -28,6 +28,8 @@ Read only what is relevant to the current task:
   and commit conventions.
 - `modules.md` — module metadata, layout, naming and scope rules.
 - `porting.md` — workflow for adapting upstream modules to SkyFire 5.4.8.
+- `localization.md` — discovery-first infrastructure and workflow for comparing
+  and porting database localizations to SkyFire 5.4.8.
 - `verification.md` — static verification, Docker builds and evidence required
   before reporting success.
 
