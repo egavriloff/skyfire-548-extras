@@ -1,75 +1,73 @@
 /*
-* This file is part of the Pandaria 5.4.8 Project. See THANKS file for Copyright information
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+ * This file is part of the Pandaria 5.4.8 Project. See THANKS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 
 #ifndef AUCTION_HOUSE_BOT_BUYER_H
 #define AUCTION_HOUSE_BOT_BUYER_H
 
-#include "Define.h"
-#include "AuctionHouseMgr.h"
 #include "AuctionHouseBot.h"
+#include "AuctionHouseMgr.h"
+#include "Define.h"
 
-struct BuyerAuctionEval
-{
-    BuyerAuctionEval() : AuctionId(0), LastChecked(0), LastExist(0) { }
+struct BuyerAuctionEval {
+    BuyerAuctionEval(): AuctionId(0), LastChecked(0), LastExist(0) {}
 
-    uint32  AuctionId;
-    time_t  LastChecked;
-    time_t  LastExist;
+    uint32 AuctionId;
+    time_t LastChecked;
+    time_t LastExist;
 };
 
-struct BuyerItemInfo
-{
-    BuyerItemInfo() : BidItemCount(0), BuyItemCount(0), MinBuyPrice(0), MinBidPrice(0), TotalBuyPrice(0), TotalBidPrice(0) { }
+struct BuyerItemInfo {
+    BuyerItemInfo()
+        : BidItemCount(0), BuyItemCount(0), MinBuyPrice(0), MinBidPrice(0), TotalBuyPrice(0), TotalBidPrice(0) {}
 
-    uint32  BidItemCount;
-    uint32  BuyItemCount;
-    double  MinBuyPrice;
-    double  MinBidPrice;
-    double  TotalBuyPrice;
-    double  TotalBidPrice;
+    uint32 BidItemCount;
+    uint32 BuyItemCount;
+    double MinBuyPrice;
+    double MinBidPrice;
+    double TotalBuyPrice;
+    double TotalBidPrice;
 };
 
 typedef std::map<uint32, BuyerItemInfo> BuyerItemInfoMap;
 typedef std::map<uint32, BuyerAuctionEval> CheckEntryMap;
 
-struct BuyerConfiguration
-{
-    BuyerConfiguration() : BuyerEnabled(false), _houseType(AUCTION_HOUSE_NEUTRAL) { }
+struct BuyerConfiguration {
+    BuyerConfiguration(): BuyerEnabled(false), _houseType(AUCTION_HOUSE_NEUTRAL) {}
 
-    void Initialize(AuctionHouseType houseType)
-    {
-        _houseType = houseType;
+    void Initialize(AuctionHouseType houseType) {
+      _houseType = houseType;
     }
 
-    AuctionHouseType GetHouseType() const { return _houseType; }
+    AuctionHouseType GetHouseType() const {
+      return _houseType;
+    }
 
     BuyerItemInfoMap SameItemInfo;
     CheckEntryMap EligibleItems;
     bool BuyerEnabled;
 
-private:
+  private:
     AuctionHouseType _houseType;
 };
 
 // This class handle all Buyer method
 // (holder of AuctionBotConfig for each auction house type)
-class AuctionBotBuyer : public AuctionBotAgent
-{
-public:
+class AuctionBotBuyer: public AuctionBotAgent {
+  public:
     AuctionBotBuyer();
     ~AuctionBotBuyer();
 
@@ -79,7 +77,7 @@ public:
     void LoadConfig();
     void BuyAndBidItems(BuyerConfiguration& config);
 
-private:
+  private:
     uint32 _checkInterval;
     BuyerConfiguration _houseConfig[MAX_AUCTION_HOUSE_TYPE];
 

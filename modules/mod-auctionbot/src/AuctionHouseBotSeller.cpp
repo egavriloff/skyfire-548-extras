@@ -1,954 +1,946 @@
 #include <iomanip>
 /*
-* This file is part of the Pandaria 5.4.8 Project. See THANKS file for Copyright information
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+ * This file is part of the Pandaria 5.4.8 Project. See THANKS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 
-#include "AuctionHouseBotSeller.h"
-#include "AuctionBotPolicy.h"
 #include "AuctionBotItemProperties.h"
+#include "AuctionBotModule.h"
+#include "AuctionBotPolicy.h"
+#include "AuctionHouseBotSeller.h"
 #include "AuctionHouseMgr.h"
 #include "Containers.h"
-#include "DatabaseEnv.h"
-#include "DBCStores.h"
 #include "DB2Stores.h"
-#include "World.h"
-#include "AuctionBotModule.h"
+#include "DBCStores.h"
+#include "DatabaseEnv.h"
 #include "Item.h"
 #include "Log.h"
 #include "ObjectMgr.h"
-//#include "Random.h"
+#include "World.h"
+// #include "Random.h"
 #include <sstream>
 
-AuctionBotSeller::AuctionBotSeller()
-{
-    // Define faction for our main data class.
-    for (uint8 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
-        _houseConfig[i].Initialize(AuctionHouseType(i));
+AuctionBotSeller::AuctionBotSeller() {
+  // Define faction for our main data class.
+  for (uint8 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+    _houseConfig[i].Initialize(AuctionHouseType(i));
 }
 
-AuctionBotSeller::~AuctionBotSeller()
-{
+AuctionBotSeller::~AuctionBotSeller() {}
+
+bool AuctionBotSeller::Initialize() {
+  std::unordered_set<uint32> npcItems;
+  std::unordered_set<uint32> lootItems;
+  std::unordered_set<uint32> includeItems;
+  std::unordered_set<uint32> excludeItems;
+
+  SF_LOG_DEBUG("ahbot", "AHBot seller filters:");
+
+  {
+    std::stringstream includeStream(sAuctionBotConfig->GetAHBotIncludes());
+    std::string temp;
+    while (std::getline(includeStream, temp, ','))
+      includeItems.insert(atoi(temp.c_str()));
+  }
+
+  {
+    std::stringstream excludeStream(sAuctionBotConfig->GetAHBotExcludes());
+    std::string temp;
+    while (std::getline(excludeStream, temp, ','))
+      excludeItems.insert(atoi(temp.c_str()));
+  }
+
+  SF_LOG_DEBUG("ahbot", "Forced Inclusion %u items", (uint32)includeItems.size());
+  SF_LOG_DEBUG("ahbot", "Forced Exclusion %u items", (uint32)excludeItems.size());
+
+  SF_LOG_DEBUG("ahbot", "Loading npc vendor items for filter..");
+  CreatureTemplateContainer const* creatures = sObjectMgr->GetCreatureTemplates();
+  for (CreatureTemplateContainer::const_iterator it = creatures->begin(); it != creatures->end(); ++it)
+    if (VendorItemData const* data = sObjectMgr->GetNpcVendorItemList(it->first))
+      for (VendorItem const* it2 : data->m_items)
+        npcItems.insert(it2->item);
+
+  SF_LOG_DEBUG("ahbot", "Npc vendor filter has %u items", (uint32)npcItems.size());
+
+  SF_LOG_DEBUG("ahbot", "Loading loot items for filter..");
+  // lack TC Reference attr  // WHERE `Reference` = 0
+  QueryResult result = WorldDatabase.PQuery("SELECT `item` FROM `creature_loot_template` UNION "
+                                            "SELECT `item` FROM `disenchant_loot_template` UNION "
+                                            "SELECT `item` FROM `fishing_loot_template` UNION "
+                                            "SELECT `item` FROM `gameobject_loot_template` UNION "
+                                            "SELECT `item` FROM `item_loot_template` UNION "
+                                            "SELECT `item` FROM `milling_loot_template` UNION "
+                                            "SELECT `item` FROM `pickpocketing_loot_template` UNION "
+                                            "SELECT `item` FROM `prospecting_loot_template` UNION "
+                                            "SELECT `item` FROM `reference_loot_template` UNION "
+                                            "SELECT `item` FROM `skinning_loot_template` UNION "
+                                            "SELECT `item` FROM `spell_loot_template`");
+
+  if (result) {
+    do {
+      Field* fields = result->Fetch();
+
+      uint32 entry = fields[0].GetUInt32();
+      if (!entry)
+        continue;
+
+      lootItems.insert(entry);
+    } while (result->NextRow());
+  }
+
+  SF_LOG_DEBUG("ahbot", "Loot filter has %u items", (uint32)lootItems.size());
+  SF_LOG_DEBUG("ahbot", "Sorting and cleaning items for AHBot seller...");
+
+  uint32 itemsAdded = 0;
+
+  for (auto const& entry : *sObjectMgr->GetItemTemplateStore()) {
+    uint32 itemId = entry.first;
+    ItemTemplate const* prototype = sObjectMgr->GetItemTemplate(itemId);
+    if (!prototype)
+      continue;
+
+    // skip items with too high quality (code can't properly work with its)
+    if (prototype->Quality >= MAX_AUCTION_QUALITY || prototype->Class >= MAX_ITEM_CLASS)
+      continue;
+
+    // forced exclude filter
+    if (excludeItems.count(itemId))
+      continue;
+
+    // forced include filter
+    if (includeItems.count(itemId)) {
+      _itemPool[prototype->Quality][prototype->Class].push_back(itemId);
+      ++itemsAdded;
+      continue;
+    }
+
+    // bounding filters
+    switch (prototype->Bonding) {
+    case NO_BIND:
+      if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIND_NO))
+        continue;
+      break;
+    case BIND_WHEN_PICKED_UP:
+      if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIND_PICKUP))
+        continue;
+      break;
+    case BIND_WHEN_EQUIPED:
+      if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIND_EQUIP))
+        continue;
+      break;
+    case BIND_WHEN_USE:
+      if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIND_USE))
+        continue;
+      break;
+    case BIND_QUEST_ITEM:
+      if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIND_QUEST))
+        continue;
+      break;
+    default:
+      continue;
+    }
+
+    bool allowZero = false;
+    switch (prototype->Class) {
+    case ITEM_CLASS_CONSUMABLE:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONSUMABLE_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_CONTAINER:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONTAINER_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_WEAPON:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_WEAPON_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_GEM:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GEM_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_ARMOR:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_ARMOR_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_REAGENT:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_REAGENT_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_PROJECTILE:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_PROJECTILE_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_TRADE_GOODS:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_TRADEGOOD_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_RECIPE:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RECIPE_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_QUIVER:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_QUIVER_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_QUEST:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_QUEST_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_KEY:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_KEY_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_MISCELLANEOUS:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_ALLOW_ZERO);
+      break;
+    case ITEM_CLASS_GLYPH:
+      allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_ALLOW_ZERO);
+      break;
+    default:
+      allowZero = false;
+    }
+
+    // Filter out items with no buy/sell price unless otherwise flagged in the config.
+    if (!allowZero) {
+      if (sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BUYPRICE_SELLER)) {
+        if (prototype->SellPrice == 0)
+          continue;
+      } else {
+        if (prototype->BuyPrice == 0)
+          continue;
+      }
+    }
+
+    // vendor filter
+    if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEMS_VENDOR)) {
+      if (npcItems.count(itemId))
+        continue;
+    }
+
+    // loot filter
+    if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEMS_LOOT)) {
+      if (lootItems.count(itemId))
+        continue;
+    }
+
+    // not vendor/loot filter
+    if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEMS_MISC)) {
+      bool const isVendorItem = npcItems.count(itemId) > 0;
+      bool const isLootItem = lootItems.count(itemId) > 0;
+
+      if (!isLootItem && !isVendorItem)
+        continue;
+    }
+
+    // item class/subclass specific filters
+    switch (prototype->Class) {
+    case ITEM_CLASS_ARMOR:
+    case ITEM_CLASS_WEAPON: {
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MIN_ITEM_LEVEL))
+        if (prototype->ItemLevel < value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MAX_ITEM_LEVEL))
+        if (prototype->ItemLevel > value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MIN_REQ_LEVEL))
+        if (prototype->RequiredLevel < value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MAX_REQ_LEVEL))
+        if (prototype->RequiredLevel > value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MIN_SKILL_RANK))
+        if (prototype->RequiredSkillRank < value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MAX_SKILL_RANK))
+        if (prototype->RequiredSkillRank > value)
+          continue;
+      break;
+    }
+    case ITEM_CLASS_RECIPE:
+    case ITEM_CLASS_CONSUMABLE:
+    case ITEM_CLASS_PROJECTILE: {
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MIN_REQ_LEVEL))
+        if (prototype->RequiredLevel < value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MAX_REQ_LEVEL))
+        if (prototype->RequiredLevel > value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MIN_SKILL_RANK))
+        if (prototype->RequiredSkillRank < value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MAX_SKILL_RANK))
+        if (prototype->RequiredSkillRank > value)
+          continue;
+      break;
+    }
+    case ITEM_CLASS_MISCELLANEOUS:
+      if (prototype->SubClass == ITEM_SUBCLASS_JUNK_MOUNT) {
+        if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_MOUNT_MIN_REQ_LEVEL))
+          if (prototype->RequiredLevel < value)
+            continue;
+        if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_MOUNT_MAX_REQ_LEVEL))
+          if (prototype->RequiredLevel > value)
+            continue;
+        if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_MOUNT_MIN_SKILL_RANK))
+          if (prototype->RequiredSkillRank < value)
+            continue;
+        if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_MOUNT_MAX_SKILL_RANK))
+          if (prototype->RequiredSkillRank > value)
+            continue;
+      }
+
+      if (prototype->Flags & ITEM_PROTO_FLAG_OPENABLE) {
+        // skip any not locked lootable items (mostly quest specific or reward cases)
+        if (!prototype->LockID)
+          continue;
+
+        if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_LOCKBOX_ENABLED))
+          continue;
+      }
+
+      break;
+    case ITEM_CLASS_GLYPH: {
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_MIN_REQ_LEVEL))
+        if (prototype->RequiredLevel < value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_MAX_REQ_LEVEL))
+        if (prototype->RequiredLevel > value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_MIN_ITEM_LEVEL))
+        if (prototype->ItemLevel < value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_MAX_ITEM_LEVEL))
+        if (prototype->ItemLevel > value)
+          continue;
+      break;
+    }
+    case ITEM_CLASS_TRADE_GOODS: {
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_TRADEGOOD_MIN_ITEM_LEVEL))
+        if (prototype->ItemLevel < value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_TRADEGOOD_MAX_ITEM_LEVEL))
+        if (prototype->ItemLevel > value)
+          continue;
+      break;
+    }
+    case ITEM_CLASS_CONTAINER:
+    case ITEM_CLASS_QUIVER: {
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONTAINER_MIN_ITEM_LEVEL))
+        if (prototype->ItemLevel < value)
+          continue;
+      if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONTAINER_MAX_ITEM_LEVEL))
+        if (prototype->ItemLevel > value)
+          continue;
+      break;
+    }
+    }
+
+    _itemPool[prototype->Quality][prototype->Class].push_back(itemId);
+    ++itemsAdded;
+  }
+
+  if (!itemsAdded) {
+    SF_LOG_ERROR("ahbot", "AuctionHouseBot seller not have items, disabled.");
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ALLIANCE_ITEM_AMOUNT_RATIO, 0);
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_HORDE_ITEM_AMOUNT_RATIO, 0);
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_NEUTRAL_ITEM_AMOUNT_RATIO, 0);
+    return false;
+  }
+
+  SF_LOG_DEBUG("ahbot",
+               "AuctionHouseBot seller will use %u items to fill auction house (according your config choices)",
+               itemsAdded);
+
+  LoadConfig();
+
+  SF_LOG_DEBUG("ahbot", "Items loaded \tGray\tWhite\tGreen\tBlue\tPurple\tOrange\tYellow");
+  for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i)
+    SF_LOG_DEBUG("ahbot", "\t\t%u\t%u\t%u\t%u\t%u\t%u\t%u", (uint32)_itemPool[0][i].size(),
+                 (uint32)_itemPool[1][i].size(), (uint32)_itemPool[2][i].size(), (uint32)_itemPool[3][i].size(),
+                 (uint32)_itemPool[4][i].size(), (uint32)_itemPool[5][i].size(), (uint32)_itemPool[6][i].size());
+
+  SF_LOG_DEBUG("ahbot", "AHBot seller configuration data loaded and initialized");
+  return true;
 }
 
-bool AuctionBotSeller::Initialize()
-{
-    std::unordered_set<uint32> npcItems;
-    std::unordered_set<uint32> lootItems;
-    std::unordered_set<uint32> includeItems;
-    std::unordered_set<uint32> excludeItems;
-
-    SF_LOG_DEBUG("ahbot", "AHBot seller filters:");
-
-    {
-        std::stringstream includeStream(sAuctionBotConfig->GetAHBotIncludes());
-        std::string temp;
-        while (std::getline(includeStream, temp, ','))
-            includeItems.insert(atoi(temp.c_str()));
-    }
-
-    {
-        std::stringstream excludeStream(sAuctionBotConfig->GetAHBotExcludes());
-        std::string temp;
-        while (std::getline(excludeStream, temp, ','))
-            excludeItems.insert(atoi(temp.c_str()));
-    }
-
-    SF_LOG_DEBUG("ahbot", "Forced Inclusion %u items", (uint32)includeItems.size());
-    SF_LOG_DEBUG("ahbot", "Forced Exclusion %u items", (uint32)excludeItems.size());
-
-    SF_LOG_DEBUG("ahbot", "Loading npc vendor items for filter..");
-    CreatureTemplateContainer const* creatures = sObjectMgr->GetCreatureTemplates();
-    for (CreatureTemplateContainer::const_iterator it = creatures->begin(); it != creatures->end(); ++it)
-        if (VendorItemData const* data = sObjectMgr->GetNpcVendorItemList(it->first))
-            for (VendorItem const* it2 : data->m_items)
-                npcItems.insert(it2->item);
-
-    SF_LOG_DEBUG("ahbot", "Npc vendor filter has %u items", (uint32)npcItems.size());
-
-    SF_LOG_DEBUG("ahbot", "Loading loot items for filter..");
-    // lack TC Reference attr  // WHERE `Reference` = 0 
-    QueryResult result = WorldDatabase.PQuery(
-        "SELECT `item` FROM `creature_loot_template` UNION "
-        "SELECT `item` FROM `disenchant_loot_template` UNION "
-        "SELECT `item` FROM `fishing_loot_template` UNION "
-        "SELECT `item` FROM `gameobject_loot_template` UNION "
-        "SELECT `item` FROM `item_loot_template` UNION "
-        "SELECT `item` FROM `milling_loot_template` UNION "
-        "SELECT `item` FROM `pickpocketing_loot_template` UNION "
-        "SELECT `item` FROM `prospecting_loot_template` UNION "
-        "SELECT `item` FROM `reference_loot_template` UNION "
-        "SELECT `item` FROM `skinning_loot_template` UNION "
-        "SELECT `item` FROM `spell_loot_template`");
-
-    if (result)
-    {
-        do
-        {
-            Field* fields = result->Fetch();
-
-            uint32 entry = fields[0].GetUInt32();
-            if (!entry)
-                continue;
-
-            lootItems.insert(entry);
-        } while (result->NextRow());
-    }
-
-    SF_LOG_DEBUG("ahbot", "Loot filter has %u items", (uint32)lootItems.size());
-    SF_LOG_DEBUG("ahbot", "Sorting and cleaning items for AHBot seller...");
-
-    uint32 itemsAdded = 0;
-
-    for (auto const& entry : *sObjectMgr->GetItemTemplateStore())
-    {
-        uint32 itemId = entry.first;
-        ItemTemplate const* prototype = sObjectMgr->GetItemTemplate(itemId);
-        if (!prototype)
-            continue;
-
-        // skip items with too high quality (code can't properly work with its)
-        if (prototype->Quality >= MAX_AUCTION_QUALITY || prototype->Class >= MAX_ITEM_CLASS)
-            continue;
-
-        // forced exclude filter
-        if (excludeItems.count(itemId))
-            continue;
-
-        // forced include filter
-        if (includeItems.count(itemId))
-        {
-            _itemPool[prototype->Quality][prototype->Class].push_back(itemId);
-            ++itemsAdded;
-            continue;
-        }
-
-        // bounding filters
-        switch (prototype->Bonding)
-        {
-            case NO_BIND:
-                if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIND_NO))
-                    continue;
-                break;
-            case BIND_WHEN_PICKED_UP:
-                if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIND_PICKUP))
-                    continue;
-                break;
-            case BIND_WHEN_EQUIPED:
-                if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIND_EQUIP))
-                    continue;
-                break;
-            case BIND_WHEN_USE:
-                if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIND_USE))
-                    continue;
-                break;
-            case BIND_QUEST_ITEM:
-                if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIND_QUEST))
-                    continue;
-                break;
-            default:
-                continue;
-        }
-
-        bool allowZero = false;
-        switch (prototype->Class)
-        {
-            case ITEM_CLASS_CONSUMABLE:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONSUMABLE_ALLOW_ZERO); break;
-            case ITEM_CLASS_CONTAINER:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONTAINER_ALLOW_ZERO); break;
-            case ITEM_CLASS_WEAPON:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_WEAPON_ALLOW_ZERO); break;
-            case ITEM_CLASS_GEM:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GEM_ALLOW_ZERO); break;
-            case ITEM_CLASS_ARMOR:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_ARMOR_ALLOW_ZERO); break;
-            case ITEM_CLASS_REAGENT:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_REAGENT_ALLOW_ZERO); break;
-            case ITEM_CLASS_PROJECTILE:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_PROJECTILE_ALLOW_ZERO); break;
-            case ITEM_CLASS_TRADE_GOODS:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_TRADEGOOD_ALLOW_ZERO); break;
-            case ITEM_CLASS_RECIPE:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RECIPE_ALLOW_ZERO); break;
-            case ITEM_CLASS_QUIVER:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_QUIVER_ALLOW_ZERO); break;
-            case ITEM_CLASS_QUEST:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_QUEST_ALLOW_ZERO); break;
-            case ITEM_CLASS_KEY:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_KEY_ALLOW_ZERO); break;
-            case ITEM_CLASS_MISCELLANEOUS:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_ALLOW_ZERO); break;
-            case ITEM_CLASS_GLYPH:
-                allowZero = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_ALLOW_ZERO); break;
-            default:
-                allowZero = false;
-        }
-
-        // Filter out items with no buy/sell price unless otherwise flagged in the config.
-        if (!allowZero)
-        {
-            if (sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BUYPRICE_SELLER))
-            {
-                if (prototype->SellPrice == 0)
-                    continue;
-            }
-            else
-            {
-                if (prototype->BuyPrice == 0)
-                    continue;
-            }
-        }
-
-        // vendor filter
-        if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEMS_VENDOR))
-        {
-            if (npcItems.count(itemId))
-                continue;
-        }
-
-        // loot filter
-        if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEMS_LOOT))
-        {
-            if (lootItems.count(itemId))
-                continue;
-        }
-
-        // not vendor/loot filter
-        if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEMS_MISC))
-        {
-            bool const isVendorItem = npcItems.count(itemId) > 0;
-            bool const isLootItem = lootItems.count(itemId) > 0;
-
-            if (!isLootItem && !isVendorItem)
-                continue;
-        }
-
-        // item class/subclass specific filters
-        switch (prototype->Class)
-        {
-            case ITEM_CLASS_ARMOR:
-            case ITEM_CLASS_WEAPON:
-            {
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MIN_ITEM_LEVEL))
-                    if (prototype->ItemLevel < value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MAX_ITEM_LEVEL))
-                    if (prototype->ItemLevel > value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MIN_REQ_LEVEL))
-                    if (prototype->RequiredLevel < value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MAX_REQ_LEVEL))
-                    if (prototype->RequiredLevel > value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MIN_SKILL_RANK))
-                    if (prototype->RequiredSkillRank < value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MAX_SKILL_RANK))
-                    if (prototype->RequiredSkillRank > value)
-                        continue;
-                break;
-            }
-            case ITEM_CLASS_RECIPE:
-            case ITEM_CLASS_CONSUMABLE:
-            case ITEM_CLASS_PROJECTILE:
-            {
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MIN_REQ_LEVEL))
-                    if (prototype->RequiredLevel < value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MAX_REQ_LEVEL))
-                    if (prototype->RequiredLevel > value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MIN_SKILL_RANK))
-                    if (prototype->RequiredSkillRank < value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_ITEM_MAX_SKILL_RANK))
-                    if (prototype->RequiredSkillRank > value)
-                        continue;
-                break;
-            }
-            case ITEM_CLASS_MISCELLANEOUS:
-                if (prototype->SubClass == ITEM_SUBCLASS_JUNK_MOUNT)
-                {
-                    if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_MOUNT_MIN_REQ_LEVEL))
-                        if (prototype->RequiredLevel < value)
-                            continue;
-                    if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_MOUNT_MAX_REQ_LEVEL))
-                        if (prototype->RequiredLevel > value)
-                            continue;
-                    if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_MOUNT_MIN_SKILL_RANK))
-                        if (prototype->RequiredSkillRank < value)
-                            continue;
-                    if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_MOUNT_MAX_SKILL_RANK))
-                        if (prototype->RequiredSkillRank > value)
-                            continue;
-                }
-
-                if (prototype->Flags & ITEM_PROTO_FLAG_OPENABLE)
-                {
-                    // skip any not locked lootable items (mostly quest specific or reward cases)
-                    if (!prototype->LockID)
-                        continue;
-
-                    if (!sAuctionBotConfig->GetConfig(CONFIG_AHBOT_LOCKBOX_ENABLED))
-                        continue;
-                }
-
-                break;
-            case ITEM_CLASS_GLYPH:
-            {
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_MIN_REQ_LEVEL))
-                    if (prototype->RequiredLevel < value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_MAX_REQ_LEVEL))
-                    if (prototype->RequiredLevel > value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_MIN_ITEM_LEVEL))
-                    if (prototype->ItemLevel < value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_MAX_ITEM_LEVEL))
-                    if (prototype->ItemLevel > value)
-                        continue;
-                break;
-            }
-            case ITEM_CLASS_TRADE_GOODS:
-            {
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_TRADEGOOD_MIN_ITEM_LEVEL))
-                    if (prototype->ItemLevel < value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_TRADEGOOD_MAX_ITEM_LEVEL))
-                    if (prototype->ItemLevel > value)
-                        continue;
-                break;
-            }
-            case ITEM_CLASS_CONTAINER:
-            case ITEM_CLASS_QUIVER:
-            {
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONTAINER_MIN_ITEM_LEVEL))
-                    if (prototype->ItemLevel < value)
-                        continue;
-                if (uint32 value = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONTAINER_MAX_ITEM_LEVEL))
-                    if (prototype->ItemLevel > value)
-                        continue;
-                break;
-            }
-        }
-
-        _itemPool[prototype->Quality][prototype->Class].push_back(itemId);
-        ++itemsAdded;
-    }
-
-    if (!itemsAdded)
-    {
-        SF_LOG_ERROR("ahbot", "AuctionHouseBot seller not have items, disabled.");
-        sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ALLIANCE_ITEM_AMOUNT_RATIO, 0);
-        sAuctionBotConfig->SetConfig(CONFIG_AHBOT_HORDE_ITEM_AMOUNT_RATIO, 0);
-        sAuctionBotConfig->SetConfig(CONFIG_AHBOT_NEUTRAL_ITEM_AMOUNT_RATIO, 0);
-        return false;
-    }
-
-    SF_LOG_DEBUG("ahbot", "AuctionHouseBot seller will use %u items to fill auction house (according your config choices)", itemsAdded);
-
-    LoadConfig();
-
-    SF_LOG_DEBUG("ahbot", "Items loaded \tGray\tWhite\tGreen\tBlue\tPurple\tOrange\tYellow");
-    for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i)
-        SF_LOG_DEBUG("ahbot", "\t\t%u\t%u\t%u\t%u\t%u\t%u\t%u",
-        (uint32)_itemPool[0][i].size(), (uint32)_itemPool[1][i].size(), (uint32)_itemPool[2][i].size(),
-        (uint32)_itemPool[3][i].size(), (uint32)_itemPool[4][i].size(), (uint32)_itemPool[5][i].size(),
-        (uint32)_itemPool[6][i].size());
-
-    SF_LOG_DEBUG("ahbot", "AHBot seller configuration data loaded and initialized");
-    return true;
+void AuctionBotSeller::LoadConfig() {
+  for (uint8 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+    if (sAuctionBotConfig->GetConfigItemAmountRatio(AuctionHouseType(i)))
+      LoadSellerValues(_houseConfig[i]);
 }
 
-void AuctionBotSeller::LoadConfig()
-{
-    for (uint8 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
-        if (sAuctionBotConfig->GetConfigItemAmountRatio(AuctionHouseType(i)))
-            LoadSellerValues(_houseConfig[i]);
+void AuctionBotSeller::LoadItemsQuantity(SellerConfiguration& config) {
+  uint32 ratio = sAuctionBotConfig->GetConfigItemAmountRatio(config.GetHouseType());
+
+  for (uint32 i = 0; i < MAX_AUCTION_QUALITY; ++i) {
+    uint32 amount = sAuctionBotConfig->GetConfig(AuctionBotConfigUInt32Values(CONFIG_AHBOT_ITEM_GRAY_AMOUNT + i));
+    config.SetItemsAmountPerQuality(AuctionQuality(i), std::lroundf(amount * ratio / 100.f));
+  }
+
+  // Set Stack Quantities
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_CONSUMABLE,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_CONSUMABLE));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_CONTAINER,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_CONTAINER));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_WEAPON,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_WEAPON));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_GEM,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_GEM));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_ARMOR,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_ARMOR));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_REAGENT,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_REAGENT));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_PROJECTILE,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_PROJECTILE));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_TRADE_GOODS,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_TRADEGOOD));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_GENERIC,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_GENERIC));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_RECIPE,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_RECIPE));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_QUIVER,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_QUIVER));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_QUEST,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_QUEST));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_KEY,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_KEY));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_MISCELLANEOUS,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_MISC));
+  config.SetRandomStackRatioPerClass(ITEM_CLASS_GLYPH,
+                                     sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_GLYPH));
+
+  // Set the best value to get nearest amount of items wanted
+  auto getPriorityForClass = [](uint32 itemClass) -> uint32 {
+    AuctionBotConfigUInt32Values index;
+    switch (itemClass) {
+    case ITEM_CLASS_CONSUMABLE:
+      index = CONFIG_AHBOT_CLASS_CONSUMABLE_PRIORITY;
+      break;
+    case ITEM_CLASS_CONTAINER:
+      index = CONFIG_AHBOT_CLASS_CONTAINER_PRIORITY;
+      break;
+    case ITEM_CLASS_WEAPON:
+      index = CONFIG_AHBOT_CLASS_WEAPON_PRIORITY;
+      break;
+    case ITEM_CLASS_GEM:
+      index = CONFIG_AHBOT_CLASS_GEM_PRIORITY;
+      break;
+    case ITEM_CLASS_ARMOR:
+      index = CONFIG_AHBOT_CLASS_ARMOR_PRIORITY;
+      break;
+    case ITEM_CLASS_REAGENT:
+      index = CONFIG_AHBOT_CLASS_REAGENT_PRIORITY;
+      break;
+    case ITEM_CLASS_PROJECTILE:
+      index = CONFIG_AHBOT_CLASS_PROJECTILE_PRIORITY;
+      break;
+    case ITEM_CLASS_TRADE_GOODS:
+      index = CONFIG_AHBOT_CLASS_TRADEGOOD_PRIORITY;
+      break;
+    case ITEM_CLASS_GENERIC:
+      index = CONFIG_AHBOT_CLASS_GENERIC_PRIORITY;
+      break;
+    case ITEM_CLASS_RECIPE:
+      index = CONFIG_AHBOT_CLASS_RECIPE_PRIORITY;
+      break;
+    case ITEM_CLASS_QUIVER:
+      index = CONFIG_AHBOT_CLASS_QUIVER_PRIORITY;
+      break;
+    case ITEM_CLASS_QUEST:
+      index = CONFIG_AHBOT_CLASS_QUEST_PRIORITY;
+      break;
+    case ITEM_CLASS_KEY:
+      index = CONFIG_AHBOT_CLASS_KEY_PRIORITY;
+      break;
+    case ITEM_CLASS_MISCELLANEOUS:
+      index = CONFIG_AHBOT_CLASS_MISC_PRIORITY;
+      break;
+    case ITEM_CLASS_GLYPH:
+      index = CONFIG_AHBOT_CLASS_GLYPH_PRIORITY;
+      break;
+    default:
+      return 0;
+    }
+
+    return sAuctionBotConfig->GetConfig(index);
+  };
+
+  std::vector<uint32> totalPrioPerQuality(MAX_AUCTION_QUALITY);
+  for (uint32 j = 0; j < MAX_AUCTION_QUALITY; ++j) {
+    for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i) {
+      // skip empty pools
+      if (_itemPool[j][i].empty())
+        continue;
+
+      totalPrioPerQuality[j] += getPriorityForClass(i);
+    }
+  }
+
+  for (uint32 j = 0; j < MAX_AUCTION_QUALITY; ++j) {
+    uint32 qualityAmount = config.GetItemsAmountPerQuality(AuctionQuality(j));
+    if (!totalPrioPerQuality[j])
+      continue;
+
+    for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i) {
+      uint32 classPrio = getPriorityForClass(i);
+      if (_itemPool[j][i].empty())
+        classPrio = 0;
+
+      uint32 weightedAmount = std::lroundf(classPrio / float(totalPrioPerQuality[j]) * qualityAmount);
+      config.SetItemsAmountPerClass(AuctionQuality(j), ItemClass(i), weightedAmount);
+    }
+  }
+
+  // do some assert checking, GetItemAmount must always return 0 if selected _itemPool is empty
+  for (uint32 j = 0; j < MAX_AUCTION_QUALITY; ++j) {
+    for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i) {
+      if (_itemPool[j][i].empty())
+        ASSERT(config.GetItemsAmountPerClass(AuctionQuality(j), ItemClass(i)) == 0);
+    }
+  }
 }
 
-void AuctionBotSeller::LoadItemsQuantity(SellerConfiguration& config)
-{
-    uint32 ratio = sAuctionBotConfig->GetConfigItemAmountRatio(config.GetHouseType());
+void AuctionBotSeller::LoadSellerValues(SellerConfiguration& config) {
+  LoadItemsQuantity(config);
+  uint32 ratio = sAuctionBotConfig->GetConfigPriceRatio(config.GetHouseType());
 
-    for (uint32 i = 0; i < MAX_AUCTION_QUALITY; ++i)
-    {
-        uint32 amount = sAuctionBotConfig->GetConfig(AuctionBotConfigUInt32Values(CONFIG_AHBOT_ITEM_GRAY_AMOUNT + i));
-        config.SetItemsAmountPerQuality(AuctionQuality(i), std::lroundf(amount * ratio / 100.f));
-    }
+  for (uint32 i = 0; i < MAX_AUCTION_QUALITY; ++i) {
+    uint32 amount = sAuctionBotConfig->GetConfig(AuctionBotConfigUInt32Values(CONFIG_AHBOT_ITEM_GRAY_PRICE_RATIO + i));
+    config.SetPriceRatioPerQuality(AuctionQuality(i), std::lroundf(amount * ratio / 100.f));
+  }
 
-    // Set Stack Quantities
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_CONSUMABLE, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_CONSUMABLE));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_CONTAINER, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_CONTAINER));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_WEAPON, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_WEAPON));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_GEM, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_GEM));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_ARMOR, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_ARMOR));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_REAGENT, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_REAGENT));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_PROJECTILE, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_PROJECTILE));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_TRADE_GOODS, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_TRADEGOOD));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_GENERIC, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_GENERIC));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_RECIPE, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_RECIPE));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_QUIVER, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_QUIVER));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_QUEST, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_QUEST));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_KEY, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_KEY));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_MISCELLANEOUS, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_MISC));
-    config.SetRandomStackRatioPerClass(ITEM_CLASS_GLYPH, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_GLYPH));
+  config.SetPriceRatioPerClass(ITEM_CLASS_CONSUMABLE,
+                               sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONSUMABLE_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_CONTAINER,
+                               sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONTAINER_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_WEAPON, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_WEAPON_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_GEM, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GEM_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_ARMOR, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_ARMOR_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_REAGENT,
+                               sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_REAGENT_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_PROJECTILE,
+                               sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_PROJECTILE_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_TRADE_GOODS,
+                               sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_TRADEGOOD_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_GENERIC,
+                               sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GENERIC_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_RECIPE, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RECIPE_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_MONEY, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MONEY_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_QUIVER, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_QUIVER_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_QUEST, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_QUEST_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_KEY, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_KEY_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_PERMANENT,
+                               sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_PERMANENT_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_MISCELLANEOUS,
+                               sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_PRICE_RATIO));
+  config.SetPriceRatioPerClass(ITEM_CLASS_GLYPH, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_PRICE_RATIO));
 
-    // Set the best value to get nearest amount of items wanted
-    auto getPriorityForClass = [](uint32 itemClass) -> uint32
-    {
-        AuctionBotConfigUInt32Values index;
-        switch (itemClass)
-        {
-            case ITEM_CLASS_CONSUMABLE:
-                index = CONFIG_AHBOT_CLASS_CONSUMABLE_PRIORITY; break;
-            case ITEM_CLASS_CONTAINER:
-                index = CONFIG_AHBOT_CLASS_CONTAINER_PRIORITY; break;
-            case ITEM_CLASS_WEAPON:
-                index = CONFIG_AHBOT_CLASS_WEAPON_PRIORITY; break;
-            case ITEM_CLASS_GEM:
-                index = CONFIG_AHBOT_CLASS_GEM_PRIORITY; break;
-            case ITEM_CLASS_ARMOR:
-                index = CONFIG_AHBOT_CLASS_ARMOR_PRIORITY; break;
-            case ITEM_CLASS_REAGENT:
-                index = CONFIG_AHBOT_CLASS_REAGENT_PRIORITY; break;
-            case ITEM_CLASS_PROJECTILE:
-                index = CONFIG_AHBOT_CLASS_PROJECTILE_PRIORITY; break;
-            case ITEM_CLASS_TRADE_GOODS:
-                index = CONFIG_AHBOT_CLASS_TRADEGOOD_PRIORITY; break;
-            case ITEM_CLASS_GENERIC:
-                index = CONFIG_AHBOT_CLASS_GENERIC_PRIORITY; break;
-            case ITEM_CLASS_RECIPE:
-                index = CONFIG_AHBOT_CLASS_RECIPE_PRIORITY; break;
-            case ITEM_CLASS_QUIVER:
-                index = CONFIG_AHBOT_CLASS_QUIVER_PRIORITY; break;
-            case ITEM_CLASS_QUEST:
-                index = CONFIG_AHBOT_CLASS_QUEST_PRIORITY; break;
-            case ITEM_CLASS_KEY:
-                index = CONFIG_AHBOT_CLASS_KEY_PRIORITY; break;
-            case ITEM_CLASS_MISCELLANEOUS:
-                index = CONFIG_AHBOT_CLASS_MISC_PRIORITY; break;
-            case ITEM_CLASS_GLYPH:
-                index = CONFIG_AHBOT_CLASS_GLYPH_PRIORITY; break;
-            default:
-                return 0;
-        }
-
-        return sAuctionBotConfig->GetConfig(index);
-    };
-
-    std::vector<uint32> totalPrioPerQuality(MAX_AUCTION_QUALITY);
-    for (uint32 j = 0; j < MAX_AUCTION_QUALITY; ++j)
-    {
-        for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i)
-        {
-            // skip empty pools
-            if (_itemPool[j][i].empty())
-                continue;
-
-            totalPrioPerQuality[j] += getPriorityForClass(i);
-        }
-    }
-
-    for (uint32 j = 0; j < MAX_AUCTION_QUALITY; ++j)
-    {
-        uint32 qualityAmount = config.GetItemsAmountPerQuality(AuctionQuality(j));
-        if (!totalPrioPerQuality[j])
-            continue;
-
-        for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i)
-        {
-            uint32 classPrio = getPriorityForClass(i);
-            if (_itemPool[j][i].empty())
-                classPrio = 0;
-
-            uint32 weightedAmount = std::lroundf(classPrio / float(totalPrioPerQuality[j]) * qualityAmount);
-            config.SetItemsAmountPerClass(AuctionQuality(j), ItemClass(i), weightedAmount);
-        }
-    }
-
-    // do some assert checking, GetItemAmount must always return 0 if selected _itemPool is empty
-    for (uint32 j = 0; j < MAX_AUCTION_QUALITY; ++j)
-    {
-        for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i)
-        {
-            if (_itemPool[j][i].empty())
-                ASSERT(config.GetItemsAmountPerClass(AuctionQuality(j), ItemClass(i)) == 0);
-        }
-    }
-}
-
-void AuctionBotSeller::LoadSellerValues(SellerConfiguration& config)
-{
-    LoadItemsQuantity(config);
-    uint32 ratio = sAuctionBotConfig->GetConfigPriceRatio(config.GetHouseType());
-
-    for (uint32 i = 0; i < MAX_AUCTION_QUALITY; ++i)
-    {
-        uint32 amount = sAuctionBotConfig->GetConfig(AuctionBotConfigUInt32Values(CONFIG_AHBOT_ITEM_GRAY_PRICE_RATIO + i));
-        config.SetPriceRatioPerQuality(AuctionQuality(i), std::lroundf(amount * ratio / 100.f));
-    }
-
-    config.SetPriceRatioPerClass(ITEM_CLASS_CONSUMABLE, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONSUMABLE_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_CONTAINER, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_CONTAINER_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_WEAPON, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_WEAPON_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_GEM, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GEM_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_ARMOR, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_ARMOR_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_REAGENT, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_REAGENT_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_PROJECTILE, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_PROJECTILE_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_TRADE_GOODS, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_TRADEGOOD_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_GENERIC, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GENERIC_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_RECIPE, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_RECIPE_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_MONEY, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MONEY_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_QUIVER, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_QUIVER_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_QUEST, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_QUEST_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_KEY, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_KEY_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_PERMANENT, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_PERMANENT_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_MISCELLANEOUS, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_MISC_PRICE_RATIO));
-    config.SetPriceRatioPerClass(ITEM_CLASS_GLYPH, sAuctionBotConfig->GetConfig(CONFIG_AHBOT_CLASS_GLYPH_PRICE_RATIO));
-
-    //load min and max auction times
-    config.SetMinTime(sAuctionBotConfig->GetConfig(CONFIG_AHBOT_MINTIME));
-    config.SetMaxTime(sAuctionBotConfig->GetConfig(CONFIG_AHBOT_MAXTIME));
+  // load min and max auction times
+  config.SetMinTime(sAuctionBotConfig->GetConfig(CONFIG_AHBOT_MINTIME));
+  config.SetMaxTime(sAuctionBotConfig->GetConfig(CONFIG_AHBOT_MAXTIME));
 }
 
 // Set static of items on one AH faction.
 // Fill ItemInfos object with real content of AH.
-uint32 AuctionBotSeller::SetStat(SellerConfiguration& config)
-{
-    AllItemsArray itemsSaved(MAX_AUCTION_QUALITY, std::vector<uint32>(MAX_ITEM_CLASS));
+uint32 AuctionBotSeller::SetStat(SellerConfiguration& config) {
+  AllItemsArray itemsSaved(MAX_AUCTION_QUALITY, std::vector<uint32>(MAX_ITEM_CLASS));
 
-    AuctionHouseObject* auctionHouse = AuctionBotModule::House(config.GetHouseType());
-    for (AuctionHouseObject::AuctionEntryMap::const_iterator itr = auctionHouse->GetAuctionsBegin(); itr != auctionHouse->GetAuctionsEnd(); ++itr)
-    {
-        AuctionEntry* auctionEntry = itr->second;
-        Item* item = sAuctionMgr->GetAItem(auctionEntry->itemGUIDLow);
-        if (item)
-        {
-            ItemTemplate const* prototype = item->GetTemplate();
-            if (prototype && prototype->Quality < MAX_AUCTION_QUALITY && prototype->Class < MAX_ITEM_CLASS)
-                if (sAuctionBotConfig->IsBotChar(auctionEntry->owner)) // Add only ahbot items
-                    ++itemsSaved[prototype->Quality][prototype->Class];
-        }
+  AuctionHouseObject* auctionHouse = AuctionBotModule::House(config.GetHouseType());
+  for (AuctionHouseObject::AuctionEntryMap::const_iterator itr = auctionHouse->GetAuctionsBegin();
+       itr != auctionHouse->GetAuctionsEnd(); ++itr) {
+    AuctionEntry* auctionEntry = itr->second;
+    Item* item = sAuctionMgr->GetAItem(auctionEntry->itemGUIDLow);
+    if (item) {
+      ItemTemplate const* prototype = item->GetTemplate();
+      if (prototype && prototype->Quality < MAX_AUCTION_QUALITY && prototype->Class < MAX_ITEM_CLASS)
+        if (sAuctionBotConfig->IsBotChar(auctionEntry->owner)) // Add only ahbot items
+          ++itemsSaved[prototype->Quality][prototype->Class];
     }
+  }
 
-    uint32 count = 0;
-    for (uint32 j = 0; j < MAX_AUCTION_QUALITY; ++j)
-    {
-        for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i)
-        {
-            config.SetMissedItemsPerClass((AuctionQuality)j, (ItemClass)i, itemsSaved[j][i]);
-            count += config.GetMissedItemsPerClass((AuctionQuality)j, (ItemClass)i);
-        }
+  uint32 count = 0;
+  for (uint32 j = 0; j < MAX_AUCTION_QUALITY; ++j) {
+    for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i) {
+      config.SetMissedItemsPerClass((AuctionQuality)j, (ItemClass)i, itemsSaved[j][i]);
+      count += config.GetMissedItemsPerClass((AuctionQuality)j, (ItemClass)i);
     }
+  }
 
-    SF_LOG_DEBUG("ahbot", "AHBot: Missed Item       \tGray\tWhite\tGreen\tBlue\tPurple\tOrange\tYellow");
-    for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i)
-    {
-        SF_LOG_DEBUG("ahbot", "AHBot: \t\t%u\t%u\t%u\t%u\t%u\t%u\t%u",
-            config.GetMissedItemsPerClass(AUCTION_QUALITY_GRAY, (ItemClass)i),
-            config.GetMissedItemsPerClass(AUCTION_QUALITY_WHITE, (ItemClass)i),
-            config.GetMissedItemsPerClass(AUCTION_QUALITY_GREEN, (ItemClass)i),
-            config.GetMissedItemsPerClass(AUCTION_QUALITY_BLUE, (ItemClass)i),
-            config.GetMissedItemsPerClass(AUCTION_QUALITY_PURPLE, (ItemClass)i),
-            config.GetMissedItemsPerClass(AUCTION_QUALITY_ORANGE, (ItemClass)i),
-            config.GetMissedItemsPerClass(AUCTION_QUALITY_YELLOW, (ItemClass)i));
-    }
-    config.LastMissedItem = count;
+  SF_LOG_DEBUG("ahbot", "AHBot: Missed Item       \tGray\tWhite\tGreen\tBlue\tPurple\tOrange\tYellow");
+  for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i) {
+    SF_LOG_DEBUG("ahbot", "AHBot: \t\t%u\t%u\t%u\t%u\t%u\t%u\t%u",
+                 config.GetMissedItemsPerClass(AUCTION_QUALITY_GRAY, (ItemClass)i),
+                 config.GetMissedItemsPerClass(AUCTION_QUALITY_WHITE, (ItemClass)i),
+                 config.GetMissedItemsPerClass(AUCTION_QUALITY_GREEN, (ItemClass)i),
+                 config.GetMissedItemsPerClass(AUCTION_QUALITY_BLUE, (ItemClass)i),
+                 config.GetMissedItemsPerClass(AUCTION_QUALITY_PURPLE, (ItemClass)i),
+                 config.GetMissedItemsPerClass(AUCTION_QUALITY_ORANGE, (ItemClass)i),
+                 config.GetMissedItemsPerClass(AUCTION_QUALITY_YELLOW, (ItemClass)i));
+  }
+  config.LastMissedItem = count;
 
-    return count;
+  return count;
 }
 
 // getRandomArray is used to make viable the possibility to add any of missed item in place of first one to last one.
-bool AuctionBotSeller::GetItemsToSell(SellerConfiguration& config, ItemsToSellArray& itemsToSellArray, AllItemsArray const& addedItem)
-{
-    itemsToSellArray.clear();
-    bool found = false;
+bool AuctionBotSeller::GetItemsToSell(SellerConfiguration& config, ItemsToSellArray& itemsToSellArray,
+                                      AllItemsArray const& addedItem) {
+  itemsToSellArray.clear();
+  bool found = false;
 
-    for (uint32 j = 0; j < MAX_AUCTION_QUALITY; ++j)
-    {
-        for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i)
-        {
-            // if _itemPool for chosen is empty, MissedItemsPerClass will return 0 here (checked at startup)
-            if (config.GetMissedItemsPerClass(AuctionQuality(j), ItemClass(i)) > addedItem[j][i])
-            {
-                ItemToSell miss_item;
-                miss_item.Color = j;
-                miss_item.Itemclass = i;
-                itemsToSellArray.emplace_back(std::move(miss_item));
-                found = true;
-            }
-        }
+  for (uint32 j = 0; j < MAX_AUCTION_QUALITY; ++j) {
+    for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i) {
+      // if _itemPool for chosen is empty, MissedItemsPerClass will return 0 here (checked at startup)
+      if (config.GetMissedItemsPerClass(AuctionQuality(j), ItemClass(i)) > addedItem[j][i]) {
+        ItemToSell miss_item;
+        miss_item.Color = j;
+        miss_item.Itemclass = i;
+        itemsToSellArray.emplace_back(std::move(miss_item));
+        found = true;
+      }
     }
+  }
 
-    return found;
+  return found;
 }
 
 // Set items price. All important value are passed by address.
-void AuctionBotSeller::SetPricesOfItem(ItemTemplate const* itemProto, SellerConfiguration& config, uint64& buyp, uint64& bidp, uint32 stackCount)
-{
-    uint32 classRatio = config.GetPriceRatioPerClass(ItemClass(itemProto->Class));
-    uint32 qualityRatio = config.GetPriceRatioPerQuality(AuctionQuality(itemProto->Quality));
-    double priceRatio = (double(classRatio) * qualityRatio) / 10000.0;
+void AuctionBotSeller::SetPricesOfItem(ItemTemplate const* itemProto, SellerConfiguration& config, uint64& buyp,
+                                       uint64& bidp, uint32 stackCount) {
+  uint32 classRatio = config.GetPriceRatioPerClass(ItemClass(itemProto->Class));
+  uint32 qualityRatio = config.GetPriceRatioPerQuality(AuctionQuality(itemProto->Quality));
+  double priceRatio = (double(classRatio) * qualityRatio) / 10000.0;
 
-    double buyPrice = std::max(0, itemProto->BuyPrice);
-    double sellPrice = itemProto->SellPrice;
+  double buyPrice = std::max(0, itemProto->BuyPrice);
+  double sellPrice = itemProto->SellPrice;
 
-    if (buyPrice == 0)
-    {
-        if (sellPrice > 0)
-            buyPrice = sellPrice * GetSellModifier(itemProto);
-        else
-        {
-            float divisor = ((itemProto->Class == ITEM_CLASS_WEAPON || itemProto->Class == ITEM_CLASS_ARMOR) ? 284.0f : 80.0f);
-            float tempLevel = (itemProto->ItemLevel == 0 ? 1.0f : itemProto->ItemLevel);
-            float tempQuality = (itemProto->Quality == 0 ? 1.0f : itemProto->Quality);
+  if (buyPrice == 0) {
+    if (sellPrice > 0)
+      buyPrice = sellPrice * GetSellModifier(itemProto);
+    else {
+      float divisor =
+          ((itemProto->Class == ITEM_CLASS_WEAPON || itemProto->Class == ITEM_CLASS_ARMOR) ? 284.0f : 80.0f);
+      float tempLevel = (itemProto->ItemLevel == 0 ? 1.0f : itemProto->ItemLevel);
+      float tempQuality = (itemProto->Quality == 0 ? 1.0f : itemProto->Quality);
 
-            buyPrice = tempLevel * tempQuality * static_cast<float>(GetBuyModifier(itemProto))* tempLevel / divisor;
-        }
+      buyPrice = tempLevel * tempQuality * static_cast<float>(GetBuyModifier(itemProto)) * tempLevel / divisor;
     }
+  }
 
-    if (sellPrice == 0)
-        sellPrice = (buyPrice > 10 ? buyPrice / GetSellModifier(itemProto) : buyPrice);
+  if (sellPrice == 0)
+    sellPrice = (buyPrice > 10 ? buyPrice / GetSellModifier(itemProto) : buyPrice);
 
-    if (sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BUYPRICE_SELLER))
-        buyPrice = sellPrice;
+  if (sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BUYPRICE_SELLER))
+    buyPrice = sellPrice;
 
-    double basePriceFloat = buyPrice * stackCount / (itemProto->Class == 6 ? 200.0f : static_cast<float>(std::max(1u, itemProto->BuyCount)));
-    basePriceFloat *= priceRatio;
+  double basePriceFloat =
+      buyPrice * stackCount / (itemProto->Class == 6 ? 200.0f : static_cast<float>(std::max(1u, itemProto->BuyCount)));
+  basePriceFloat *= priceRatio;
 
-    double price = basePriceFloat * (0.96 + rand_norm() * 0.08);
-    buyp = AuctionBotPolicy::Price(price);
-    if (buyp == 0)
-        buyp = 1;
+  double price = basePriceFloat * (0.96 + rand_norm() * 0.08);
+  buyp = AuctionBotPolicy::Price(price);
+  if (buyp == 0)
+    buyp = 1;
 
-    float bidPercentage = frand(sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIDPRICE_MIN), sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIDPRICE_MAX));
-    bidp = uint64(double(bidPercentage) * buyp);
-    if (bidp == 0)
-        bidp = 1;
+  float bidPercentage = frand(sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIDPRICE_MIN),
+                              sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BIDPRICE_MAX));
+  bidp = uint64(double(bidPercentage) * buyp);
+  if (bidp == 0)
+    bidp = 1;
 }
 
 // Determines the stack size to use for the item
-uint32 AuctionBotSeller::GetStackSizeForItem(ItemTemplate const* itemProto, SellerConfiguration& config) const
-{
-    if (config.GetRandomStackRatioPerClass(ItemClass(itemProto->Class)) > AuctionBotModule::RandomRange(0, 99))
-        return AuctionBotModule::RandomRange(1, itemProto->GetMaxStackSize());
-    else
-        return 1;
+uint32 AuctionBotSeller::GetStackSizeForItem(ItemTemplate const* itemProto, SellerConfiguration& config) const {
+  if (config.GetRandomStackRatioPerClass(ItemClass(itemProto->Class)) > AuctionBotModule::RandomRange(0, 99))
+    return AuctionBotModule::RandomRange(1, itemProto->GetMaxStackSize());
+  else
+    return 1;
 }
 
 // Determine the multiplier for the sell price of any weapon without a buy price.
-uint32 AuctionBotSeller::GetSellModifier(ItemTemplate const* prototype)
-{
-    switch (prototype->Class)
-    {
-        case ITEM_CLASS_WEAPON:
-        case ITEM_CLASS_ARMOR:
-        case ITEM_CLASS_REAGENT:
-        case ITEM_CLASS_PROJECTILE:
-            return 5;
-        default:
-            return 4;
-    }
+uint32 AuctionBotSeller::GetSellModifier(ItemTemplate const* prototype) {
+  switch (prototype->Class) {
+  case ITEM_CLASS_WEAPON:
+  case ITEM_CLASS_ARMOR:
+  case ITEM_CLASS_REAGENT:
+  case ITEM_CLASS_PROJECTILE:
+    return 5;
+  default:
+    return 4;
+  }
 }
 
 // Return the modifier by which the item's level and quality will be modified by to derive a relatively accurate price.
-uint32 AuctionBotSeller::GetBuyModifier(ItemTemplate const* prototype)
-{
-    switch (prototype->Class)
-    {
-        case ITEM_CLASS_CONSUMABLE:
-        {
-            switch (prototype->SubClass)
-            {
-            case ITEM_SUBCLASS_CONSUMABLE:
-                return 100;
-            case ITEM_SUBCLASS_FLASK:
-                return 400;
-            case ITEM_SUBCLASS_SCROLL:
-                return 15;
-            case ITEM_SUBCLASS_ITEM_ENHANCEMENT:
-                return 250;
-            case ITEM_SUBCLASS_BANDAGE:
-                return 125;
-            default:
-                return 300;
-            }
-        }
-        case ITEM_CLASS_WEAPON:
-        {
-            switch (prototype->SubClass)
-            {
-                case ITEM_SUBCLASS_WEAPON_AXE:
-                case ITEM_SUBCLASS_WEAPON_MACE:
-                case ITEM_SUBCLASS_WEAPON_SWORD:
-                case ITEM_SUBCLASS_WEAPON_FIST_WEAPON:
-                case ITEM_SUBCLASS_WEAPON_DAGGER:
-                    return 1200;
-                case ITEM_SUBCLASS_WEAPON_AXE2:
-                case ITEM_SUBCLASS_WEAPON_MACE2:
-                case ITEM_SUBCLASS_WEAPON_POLEARM:
-                case ITEM_SUBCLASS_WEAPON_SWORD2:
-                case ITEM_SUBCLASS_WEAPON_STAFF:
-                    return 1500;
-                case ITEM_SUBCLASS_WEAPON_THROWN:
-                    return 350;
-                default:
-                    return 1000;
-            }
-        }
-        case ITEM_CLASS_ARMOR:
-        {
-            switch (prototype->SubClass)
-            {
-                case ITEM_SUBCLASS_ARMOR_MISCELLANEOUS:
-                case ITEM_SUBCLASS_ARMOR_CLOTH:
-                    return 500;
-                case ITEM_SUBCLASS_ARMOR_LEATHER:
-                    return 600;
-                case ITEM_SUBCLASS_ARMOR_MAIL:
-                    return 700;
-                case ITEM_SUBCLASS_ARMOR_PLATE:
-                case ITEM_SUBCLASS_ARMOR_SHIELD:
-                    return 800;
-                default:
-                    return 400;
-            }
-        }
-        case ITEM_CLASS_REAGENT:
-        case ITEM_CLASS_PROJECTILE:
-            return 50;
-        case ITEM_CLASS_TRADE_GOODS:
-        {
-            switch (prototype->SubClass)
-            {
-                case ITEM_SUBCLASS_TRADE_GOODS:
-                case ITEM_SUBCLASS_PARTS:
-                case ITEM_SUBCLASS_MEAT:
-                    return 50;
-                case ITEM_SUBCLASS_EXPLOSIVES:
-                    return 250;
-                case ITEM_SUBCLASS_DEVICES:
-                    return 500;
-                case ITEM_SUBCLASS_ELEMENTAL:
-                case ITEM_SUBCLASS_TRADE_GOODS_OTHER:
-                case ITEM_SUBCLASS_ENCHANTING:
-                    return 300;
-                default:
-                    return 100;
-            }
-        }
-        case ITEM_CLASS_QUEST: return 1000;
-        case ITEM_CLASS_KEY: return 3000;
-        default:
-            return 500;
+uint32 AuctionBotSeller::GetBuyModifier(ItemTemplate const* prototype) {
+  switch (prototype->Class) {
+  case ITEM_CLASS_CONSUMABLE: {
+    switch (prototype->SubClass) {
+    case ITEM_SUBCLASS_CONSUMABLE:
+      return 100;
+    case ITEM_SUBCLASS_FLASK:
+      return 400;
+    case ITEM_SUBCLASS_SCROLL:
+      return 15;
+    case ITEM_SUBCLASS_ITEM_ENHANCEMENT:
+      return 250;
+    case ITEM_SUBCLASS_BANDAGE:
+      return 125;
+    default:
+      return 300;
     }
-}
-
-void AuctionBotSeller::SetItemsRatio(uint32 al, uint32 ho, uint32 ne)
-{
-    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ALLIANCE_ITEM_AMOUNT_RATIO, std::min(al, 10000u));
-    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_HORDE_ITEM_AMOUNT_RATIO, std::min(ho, 10000u));
-    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_NEUTRAL_ITEM_AMOUNT_RATIO, std::min(ne, 10000u));
-
-    for (int i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
-        LoadItemsQuantity(_houseConfig[i]);
-}
-
-void AuctionBotSeller::SetItemsRatioForHouse(AuctionHouseType house, uint32 val)
-{
-    val = std::min(val, 10000u); // apply same upper limit as used for config load
-
-    switch (house)
-    {
-        case AUCTION_HOUSE_ALLIANCE: sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ALLIANCE_ITEM_AMOUNT_RATIO, val); break;
-        case AUCTION_HOUSE_HORDE:    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_HORDE_ITEM_AMOUNT_RATIO, val); break;
-        default:                     sAuctionBotConfig->SetConfig(CONFIG_AHBOT_NEUTRAL_ITEM_AMOUNT_RATIO, val); break;
+  }
+  case ITEM_CLASS_WEAPON: {
+    switch (prototype->SubClass) {
+    case ITEM_SUBCLASS_WEAPON_AXE:
+    case ITEM_SUBCLASS_WEAPON_MACE:
+    case ITEM_SUBCLASS_WEAPON_SWORD:
+    case ITEM_SUBCLASS_WEAPON_FIST_WEAPON:
+    case ITEM_SUBCLASS_WEAPON_DAGGER:
+      return 1200;
+    case ITEM_SUBCLASS_WEAPON_AXE2:
+    case ITEM_SUBCLASS_WEAPON_MACE2:
+    case ITEM_SUBCLASS_WEAPON_POLEARM:
+    case ITEM_SUBCLASS_WEAPON_SWORD2:
+    case ITEM_SUBCLASS_WEAPON_STAFF:
+      return 1500;
+    case ITEM_SUBCLASS_WEAPON_THROWN:
+      return 350;
+    default:
+      return 1000;
     }
-
-    LoadItemsQuantity(_houseConfig[house]);
-}
-
-void AuctionBotSeller::SetItemsAmount(uint32(&vals)[MAX_AUCTION_QUALITY])
-{
-    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_GRAY_AMOUNT, vals[AUCTION_QUALITY_GRAY]);
-    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_WHITE_AMOUNT, vals[AUCTION_QUALITY_WHITE]);
-    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_GREEN_AMOUNT, vals[AUCTION_QUALITY_GREEN]);
-    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_BLUE_AMOUNT, vals[AUCTION_QUALITY_BLUE]);
-    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_PURPLE_AMOUNT, vals[AUCTION_QUALITY_PURPLE]);
-    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_ORANGE_AMOUNT, vals[AUCTION_QUALITY_ORANGE]);
-    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_YELLOW_AMOUNT, vals[AUCTION_QUALITY_YELLOW]);
-
-    for (int i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
-        LoadItemsQuantity(_houseConfig[i]);
-}
-
-void AuctionBotSeller::SetItemsAmountForQuality(AuctionQuality quality, uint32 val)
-{
-    switch (quality)
-    {
-        case AUCTION_QUALITY_GRAY:
-            sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_GRAY_AMOUNT, val); break;
-        case AUCTION_QUALITY_WHITE:
-            sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_WHITE_AMOUNT, val); break;
-        case AUCTION_QUALITY_GREEN:
-            sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_GREEN_AMOUNT, val); break;
-        case AUCTION_QUALITY_BLUE:
-            sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_BLUE_AMOUNT, val); break;
-        case AUCTION_QUALITY_PURPLE:
-            sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_PURPLE_AMOUNT, val); break;
-        case AUCTION_QUALITY_ORANGE:
-            sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_ORANGE_AMOUNT, val); break;
-        default:
-            sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_YELLOW_AMOUNT, val); break;
+  }
+  case ITEM_CLASS_ARMOR: {
+    switch (prototype->SubClass) {
+    case ITEM_SUBCLASS_ARMOR_MISCELLANEOUS:
+    case ITEM_SUBCLASS_ARMOR_CLOTH:
+      return 500;
+    case ITEM_SUBCLASS_ARMOR_LEATHER:
+      return 600;
+    case ITEM_SUBCLASS_ARMOR_MAIL:
+      return 700;
+    case ITEM_SUBCLASS_ARMOR_PLATE:
+    case ITEM_SUBCLASS_ARMOR_SHIELD:
+      return 800;
+    default:
+      return 400;
     }
+  }
+  case ITEM_CLASS_REAGENT:
+  case ITEM_CLASS_PROJECTILE:
+    return 50;
+  case ITEM_CLASS_TRADE_GOODS: {
+    switch (prototype->SubClass) {
+    case ITEM_SUBCLASS_TRADE_GOODS:
+    case ITEM_SUBCLASS_PARTS:
+    case ITEM_SUBCLASS_MEAT:
+      return 50;
+    case ITEM_SUBCLASS_EXPLOSIVES:
+      return 250;
+    case ITEM_SUBCLASS_DEVICES:
+      return 500;
+    case ITEM_SUBCLASS_ELEMENTAL:
+    case ITEM_SUBCLASS_TRADE_GOODS_OTHER:
+    case ITEM_SUBCLASS_ENCHANTING:
+      return 300;
+    default:
+      return 100;
+    }
+  }
+  case ITEM_CLASS_QUEST:
+    return 1000;
+  case ITEM_CLASS_KEY:
+    return 3000;
+  default:
+    return 500;
+  }
+}
 
-    for (int i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
-        LoadItemsQuantity(_houseConfig[i]);
+void AuctionBotSeller::SetItemsRatio(uint32 al, uint32 ho, uint32 ne) {
+  sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ALLIANCE_ITEM_AMOUNT_RATIO, std::min(al, 10000u));
+  sAuctionBotConfig->SetConfig(CONFIG_AHBOT_HORDE_ITEM_AMOUNT_RATIO, std::min(ho, 10000u));
+  sAuctionBotConfig->SetConfig(CONFIG_AHBOT_NEUTRAL_ITEM_AMOUNT_RATIO, std::min(ne, 10000u));
+
+  for (int i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+    LoadItemsQuantity(_houseConfig[i]);
+}
+
+void AuctionBotSeller::SetItemsRatioForHouse(AuctionHouseType house, uint32 val) {
+  val = std::min(val, 10000u); // apply same upper limit as used for config load
+
+  switch (house) {
+  case AUCTION_HOUSE_ALLIANCE:
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ALLIANCE_ITEM_AMOUNT_RATIO, val);
+    break;
+  case AUCTION_HOUSE_HORDE:
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_HORDE_ITEM_AMOUNT_RATIO, val);
+    break;
+  default:
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_NEUTRAL_ITEM_AMOUNT_RATIO, val);
+    break;
+  }
+
+  LoadItemsQuantity(_houseConfig[house]);
+}
+
+void AuctionBotSeller::SetItemsAmount(uint32 (&vals)[MAX_AUCTION_QUALITY]) {
+  sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_GRAY_AMOUNT, vals[AUCTION_QUALITY_GRAY]);
+  sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_WHITE_AMOUNT, vals[AUCTION_QUALITY_WHITE]);
+  sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_GREEN_AMOUNT, vals[AUCTION_QUALITY_GREEN]);
+  sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_BLUE_AMOUNT, vals[AUCTION_QUALITY_BLUE]);
+  sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_PURPLE_AMOUNT, vals[AUCTION_QUALITY_PURPLE]);
+  sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_ORANGE_AMOUNT, vals[AUCTION_QUALITY_ORANGE]);
+  sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_YELLOW_AMOUNT, vals[AUCTION_QUALITY_YELLOW]);
+
+  for (int i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+    LoadItemsQuantity(_houseConfig[i]);
+}
+
+void AuctionBotSeller::SetItemsAmountForQuality(AuctionQuality quality, uint32 val) {
+  switch (quality) {
+  case AUCTION_QUALITY_GRAY:
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_GRAY_AMOUNT, val);
+    break;
+  case AUCTION_QUALITY_WHITE:
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_WHITE_AMOUNT, val);
+    break;
+  case AUCTION_QUALITY_GREEN:
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_GREEN_AMOUNT, val);
+    break;
+  case AUCTION_QUALITY_BLUE:
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_BLUE_AMOUNT, val);
+    break;
+  case AUCTION_QUALITY_PURPLE:
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_PURPLE_AMOUNT, val);
+    break;
+  case AUCTION_QUALITY_ORANGE:
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_ORANGE_AMOUNT, val);
+    break;
+  default:
+    sAuctionBotConfig->SetConfig(CONFIG_AHBOT_ITEM_YELLOW_AMOUNT, val);
+    break;
+  }
+
+  for (int i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+    LoadItemsQuantity(_houseConfig[i]);
 }
 
 // Add new auction to one of the factions.
 // Faction and setting associated is defined passed argument ( config )
-void AuctionBotSeller::AddNewAuctions(SellerConfiguration& config)
-{
-    uint32 count = 0;
-    uint32 items = 0;
+void AuctionBotSeller::AddNewAuctions(SellerConfiguration& config) {
+  uint32 count = 0;
+  uint32 items = 0;
 
-    // If there is large amount of items missed we can use boost value to get fast filled AH
-    if (config.LastMissedItem > sAuctionBotConfig->GetItemPerCycleBoost())
-    {
-        items = sAuctionBotConfig->GetItemPerCycleBoost();
-        SF_LOG_DEBUG("ahbot", "AHBot: Boost value used to fill AH! (if this happens often adjust both ItemsPerCycle in worldserver.conf)");
+  // If there is large amount of items missed we can use boost value to get fast filled AH
+  if (config.LastMissedItem > sAuctionBotConfig->GetItemPerCycleBoost()) {
+    items = sAuctionBotConfig->GetItemPerCycleBoost();
+    SF_LOG_DEBUG(
+        "ahbot",
+        "AHBot: Boost value used to fill AH! (if this happens often adjust both ItemsPerCycle in worldserver.conf)");
+  } else
+    items = sAuctionBotConfig->GetItemPerCycleNormal();
+
+  AuctionHouseEntry const* ahEntry =
+      AuctionHouseMgr::GetAuctionHouseEntry(AuctionBotModule::Faction(config.GetHouseType()));
+  if (!ahEntry)
+    return;
+
+  AuctionHouseObject* auctionHouse = AuctionBotModule::House(config.GetHouseType());
+
+  ItemsToSellArray itemsToSell;
+  AllItemsArray allItems(MAX_AUCTION_QUALITY, std::vector<uint32>(MAX_ITEM_CLASS));
+  // Main loop
+  // getRandomArray will give what categories of items should be added (return true if there is at least 1 items missed)
+  SQLTransaction trans = CharacterDatabase.BeginTransaction();
+  while (GetItemsToSell(config, itemsToSell, allItems) && items > 0) {
+    --items;
+
+    // Select random position from missed items table
+    ItemToSell const& sellItem = Skyfire::Containers::SelectRandomContainerElement(itemsToSell);
+
+    // Set itemId with random item ID for selected categories and color, from _itemPool table
+    uint32 itemId = Skyfire::Containers::SelectRandomContainerElement(_itemPool[sellItem.Color][sellItem.Itemclass]);
+    ++allItems[sellItem.Color][sellItem.Itemclass]; // Helper table to avoid rescan from DB in this loop. (has we add
+                                                    // item in random orders)
+
+    if (!itemId) {
+      SF_LOG_DEBUG("ahbot", "AHBot: Item entry 0 auction creating attempt.");
+      continue;
     }
-    else
-        items = sAuctionBotConfig->GetItemPerCycleNormal();
 
-    AuctionHouseEntry const* ahEntry = AuctionHouseMgr::GetAuctionHouseEntry(AuctionBotModule::Faction(config.GetHouseType()));
-    if (!ahEntry)
-        return;
-
-    AuctionHouseObject* auctionHouse = AuctionBotModule::House(config.GetHouseType());
-
-    ItemsToSellArray itemsToSell;
-    AllItemsArray allItems(MAX_AUCTION_QUALITY, std::vector<uint32>(MAX_ITEM_CLASS));
-    // Main loop
-    // getRandomArray will give what categories of items should be added (return true if there is at least 1 items missed)
-    SQLTransaction trans = CharacterDatabase.BeginTransaction();
-    while (GetItemsToSell(config, itemsToSell, allItems) && items > 0)
-    {
-        --items;
-
-        // Select random position from missed items table
-        ItemToSell const& sellItem = Skyfire::Containers::SelectRandomContainerElement(itemsToSell);
-
-        // Set itemId with random item ID for selected categories and color, from _itemPool table
-        uint32 itemId = Skyfire::Containers::SelectRandomContainerElement(_itemPool[sellItem.Color][sellItem.Itemclass]);
-        ++allItems[sellItem.Color][sellItem.Itemclass]; // Helper table to avoid rescan from DB in this loop. (has we add item in random orders)
-
-        if (!itemId)
-        {
-            SF_LOG_DEBUG("ahbot", "AHBot: Item entry 0 auction creating attempt.");
-            continue;
-        }
-
-        ItemTemplate const* prototype = sObjectMgr->GetItemTemplate(itemId);
-        if (!prototype)
-        {
-            SF_LOG_DEBUG("ahbot", "AHBot: Unknown item %u auction creating attempt.", itemId);
-            continue;
-        }
-
-        uint32 stackCount = GetStackSizeForItem(prototype, config);
-
-        Item* item = Item::CreateItem(itemId, stackCount);
-        if (!item)
-        {
-            SF_LOG_ERROR("ahbot", "AHBot: Item::CreateItem() returned nullptr for item %u (stack: %u)", itemId, stackCount);
-            break;
-        }
-
-        // SkyFire inventory setters require a live Player. Auction items have no
-        // owner; initialize their fields while ITEM_NEW and save them below.
-        int32 propertyId = Item::GenerateItemRandomPropertyId(itemId);
-        uint32 const* enchantments = nullptr;
-        if (propertyId > 0)
-        {
-            if (ItemRandomPropertiesEntry const* entry = sItemRandomPropertiesStore.LookupEntry(propertyId))
-                enchantments = entry->enchant_id;
-        }
-        else if (propertyId < 0)
-        {
-            if (ItemRandomSuffixEntry const* entry = sItemRandomSuffixStore.LookupEntry(-propertyId))
-                enchantments = entry->enchant_id;
-        }
-        if (!AuctionBotModule::InitializeNewItemProperties(*item, propertyId, enchantments))
-        {
-            SF_LOG_ERROR("ahbot", "AHBot: cannot initialize random properties for item %u", itemId);
-            delete item;
-            continue;
-        }
-
-        uint64 buyoutPrice;
-        uint64 bidPrice = 0;
-
-        // Price of items are set here
-        SetPricesOfItem(prototype, config, buyoutPrice, bidPrice, stackCount);
-
-        uint32 etime = AuctionBotModule::RandomRange(config.GetMinTime(), config.GetMaxTime()) * HOUR;
-
-        AuctionEntry* auctionEntry = new AuctionEntry();
-        auctionEntry->Id = sObjectMgr->GenerateAuctionID();
-        auctionEntry->owner = sAuctionBotConfig->GetRandChar();
-        auctionEntry->itemGUIDLow = item->GetGUIDLow();
-        auctionEntry->itemEntry = item->GetEntry();
-        auctionEntry->startbid = bidPrice;
-        auctionEntry->buyout = buyoutPrice;
-        auctionEntry->auctioneer = AuctionBotModule::Auctioneer(config.GetHouseType());
-        auctionEntry->itemCount = stackCount;
-        auctionEntry->factionTemplateId = AuctionBotModule::Faction(config.GetHouseType());
-        //auctionEntry->houseId = houseid;
-        auctionEntry->bidder = 0;
-        auctionEntry->bid = 0;
-        auctionEntry->deposit = sAuctionMgr->GetAuctionDeposit(ahEntry, etime, item, stackCount);
-        auctionEntry->auctionHouseEntry = ahEntry;
-        auctionEntry->expire_time = sWorld->GetGameTime() + etime;
-
-        item->SaveToDB(trans);
-        sAuctionMgr->AddAItem(item);
-        auctionHouse->AddAuction(auctionEntry);
-        auctionEntry->SaveToDB(trans);
-
-        ++count;
+    ItemTemplate const* prototype = sObjectMgr->GetItemTemplate(itemId);
+    if (!prototype) {
+      SF_LOG_DEBUG("ahbot", "AHBot: Unknown item %u auction creating attempt.", itemId);
+      continue;
     }
-    CharacterDatabase.CommitTransaction(trans);
 
-    SF_LOG_DEBUG("ahbot", "AHBot: Added %u items to auction", count);
+    uint32 stackCount = GetStackSizeForItem(prototype, config);
+
+    Item* item = Item::CreateItem(itemId, stackCount);
+    if (!item) {
+      SF_LOG_ERROR("ahbot", "AHBot: Item::CreateItem() returned nullptr for item %u (stack: %u)", itemId, stackCount);
+      break;
+    }
+
+    // SkyFire inventory setters require a live Player. Auction items have no
+    // owner; initialize their fields while ITEM_NEW and save them below.
+    int32 propertyId = Item::GenerateItemRandomPropertyId(itemId);
+    uint32 const* enchantments = nullptr;
+    if (propertyId > 0) {
+      if (ItemRandomPropertiesEntry const* entry = sItemRandomPropertiesStore.LookupEntry(propertyId))
+        enchantments = entry->enchant_id;
+    } else if (propertyId < 0) {
+      if (ItemRandomSuffixEntry const* entry = sItemRandomSuffixStore.LookupEntry(-propertyId))
+        enchantments = entry->enchant_id;
+    }
+    if (!AuctionBotModule::InitializeNewItemProperties(*item, propertyId, enchantments)) {
+      SF_LOG_ERROR("ahbot", "AHBot: cannot initialize random properties for item %u", itemId);
+      delete item;
+      continue;
+    }
+
+    uint64 buyoutPrice;
+    uint64 bidPrice = 0;
+
+    // Price of items are set here
+    SetPricesOfItem(prototype, config, buyoutPrice, bidPrice, stackCount);
+
+    uint32 etime = AuctionBotModule::RandomRange(config.GetMinTime(), config.GetMaxTime()) * HOUR;
+
+    AuctionEntry* auctionEntry = new AuctionEntry();
+    auctionEntry->Id = sObjectMgr->GenerateAuctionID();
+    auctionEntry->owner = sAuctionBotConfig->GetRandChar();
+    auctionEntry->itemGUIDLow = item->GetGUIDLow();
+    auctionEntry->itemEntry = item->GetEntry();
+    auctionEntry->startbid = bidPrice;
+    auctionEntry->buyout = buyoutPrice;
+    auctionEntry->auctioneer = AuctionBotModule::Auctioneer(config.GetHouseType());
+    auctionEntry->itemCount = stackCount;
+    auctionEntry->factionTemplateId = AuctionBotModule::Faction(config.GetHouseType());
+    // auctionEntry->houseId = houseid;
+    auctionEntry->bidder = 0;
+    auctionEntry->bid = 0;
+    auctionEntry->deposit = sAuctionMgr->GetAuctionDeposit(ahEntry, etime, item, stackCount);
+    auctionEntry->auctionHouseEntry = ahEntry;
+    auctionEntry->expire_time = sWorld->GetGameTime() + etime;
+
+    item->SaveToDB(trans);
+    sAuctionMgr->AddAItem(item);
+    auctionHouse->AddAuction(auctionEntry);
+    auctionEntry->SaveToDB(trans);
+
+    ++count;
+  }
+  CharacterDatabase.CommitTransaction(trans);
+
+  SF_LOG_DEBUG("ahbot", "AHBot: Added %u items to auction", count);
 }
 
-bool AuctionBotSeller::Update(AuctionHouseType houseType)
-{
-    if (sAuctionBotConfig->GetConfigItemAmountRatio(houseType) > 0)
-    {
-        SF_LOG_DEBUG("ahbot", "AHBot: %s selling ...", AuctionBotConfig::GetHouseTypeName(houseType));
-        if (SetStat(_houseConfig[houseType]))
-            AddNewAuctions(_houseConfig[houseType]);
-        return true;
-    }
-    else
-        return false;
+bool AuctionBotSeller::Update(AuctionHouseType houseType) {
+  if (sAuctionBotConfig->GetConfigItemAmountRatio(houseType) > 0) {
+    SF_LOG_DEBUG("ahbot", "AHBot: %s selling ...", AuctionBotConfig::GetHouseTypeName(houseType));
+    if (SetStat(_houseConfig[houseType]))
+      AddNewAuctions(_houseConfig[houseType]);
+    return true;
+  } else
+    return false;
 }
