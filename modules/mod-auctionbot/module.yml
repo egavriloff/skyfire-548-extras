@@ -1,0 +1,32 @@
+schema: module-extended
+
+name: AuctionBot
+slug: mod-auctionbot
+status: working
+
+target:
+  core: ProjectSkyfire/SkyFire_548
+  repository: https://github.com/ProjectSkyfire/SkyFire_548
+
+upstream:
+  name: Pandaria 5.4.8 Project (AuctionHouseBot)
+  repository: null
+  revision: null
+  author: Pandaria 5.4.8 Project contributors
+  license: GPL-2.0-or-later
+
+components:
+  source: true
+  config: true
+  patches: false
+
+  sql:
+    auth: false
+    characters: false
+    world: false
+
+# Existing working installation reported by the maintainer; see README.md.
+testing:
+  build: true
+  startup: true
+  ingame: true
