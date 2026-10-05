@@ -2,6 +2,23 @@
 
 Офлайн-инструменты для просмотра, сравнения и подготовки reviewable SQL локализаций для World DB SkyFire 5.4.8. В первом MVP поддерживаются только `gossip_menu_option`, `item` и `gameobject`.
 
+После fresh clone подготовьте источники в стандартной структуре:
+
+```text
+.porting/sources/
+  alexkulya/
+    repo/
+    db/
+  loap/
+    repo/
+    db/
+  skyfire/
+    repo/
+    db/
+```
+
+Поместите repository checkouts в `repo/`, при необходимости дополнительные full/release DB dumps — в `db/`. Затем из корня workspace выполните `python tools/localization/localize.py index`. Создавать `inventory.json` вручную не нужно. Для runtime достаточно стандартной библиотеки Python; Git нужен только для определения revision, если source содержит независимые `.git`-метаданные.
+
 ```powershell
 python tools/localization/localize.py index
 python tools/localization/localize.py inspect item 12345 --locale ruRU
@@ -11,7 +28,7 @@ python tools/localization/localize.py export-manifest item 12345 --locale ruRU -
 python -m unittest discover -s tools/localization/tests -v
 ```
 
-Команда `index` берёт активные пути из `.porting/localization/inventory.json` и самостоятельно повторно исключает сегменты каталогов `old`, `pending`, `archive`, `archives`, `deprecated`, `legacy`. SQL-файлы и члены ZIP читаются потоково с ограниченным буфером. SQLite индекс и кэш создаются только в `.porting/localization/`; индекс можно пересобрать командой `index`.
+Команда `index` при каждом запуске самостоятельно рекурсивно обнаруживает `*.sql` в `repo/` и `db/` каждого source, включая SQL внутри ZIP. Сегменты каталогов `old`, `pending`, `archive`, `archives`, `deprecated`, `legacy` исключаются на любом уровне без учёта регистра, включая пути внутри ZIP. SQL-файлы и члены ZIP читаются потоково с ограниченным буфером; архивы не распаковываются. `inventory.json` не используется как вход: его отсутствие или устаревшее содержимое не мешает первому и повторному запуску. SQLite индекс и кэш создаются только в `.porting/localization/`; повторный `index` обнаруживает актуальный набор файлов и перестраивает индекс. Если SQL-источников нет, команда сообщает ошибку, сохраняя прежний индекс.
 
 При совпадении ключей приоритет такой: SQL из repository base, затем полный/release dump из `db/`, затем repository updates в лексикографическом порядке путей. `DELETE` поддерживает equality, `IN`, `BETWEEN` и соединение условий через `AND`, включая удаление всех options по одному `MenuID`. Literal `UPDATE` применяются к существующим индексированным locale-значениям и identity-полям; очистка текста удаляет прежнее значение. Операции выполняются один раз в соответствующем проходе индексации.
 

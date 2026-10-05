@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 import zipfile
 from collections import deque
@@ -17,7 +18,6 @@ from typing import Iterator, TextIO
 ROOT = Path(__file__).resolve().parents[2]
 PORTING = ROOT / ".porting" / "localization"
 INDEX = PORTING / "localization-index.sqlite3"
-_INVENTORY_CACHE: dict | None = None
 LOCALES = {
     "enUS": 0, "koKR": 1, "frFR": 2, "deDE": 3, "zhCN": 4, "zhTW": 5,
     "esES": 6, "esMX": 7, "ruRU": 8, "itIT": 9, "ptBR": 10, "ptPT": 11,
@@ -293,39 +293,45 @@ class Tokens:
 
 
 def active_files() -> list[tuple[str, Path, str | None]]:
-    data = source_inventory()
     result = []
+    def walk_error(error: OSError) -> None:
+        raise RuntimeError(f"Не удалось прочитать каталог источников: {error}") from error
+
     for source in ("alexkulya", "loap", "skyfire"):
-        for item in data[source]["files"]:
-            ref = item["file"].replace("\\", "/")
-            parts = Path(ref.split("!", 1)[0]).parts
-            if any(part.casefold() in SKIP_DIRS for part in parts):
+        for location in ("repo", "db"):
+            base = ROOT / ".porting" / "sources" / source / location
+            if not base.exists():
                 continue
-            if "!" in ref:
-                archive, member = ref.split("!", 1)
-                result.append((source, ROOT / archive, member))
-            else:
-                path = ROOT / ref
-                if path.suffix.lower() == ".sql":
-                    result.append((source, path, None))
+            for directory, dirs, files in os.walk(base, onerror=walk_error, followlinks=False):
+                dirs[:] = sorted(name for name in dirs if name.casefold() not in SKIP_DIRS | {".git"})
+                for name in sorted(files):
+                    path = Path(directory) / name
+                    if path.suffix.casefold() == ".sql":
+                        result.append((source, path, None))
+                    elif path.suffix.casefold() == ".zip":
+                        try:
+                            # Read archive metadata only; SQL members are streamed later.
+                            with zipfile.ZipFile(path) as archive:
+                                for info in archive.infolist():
+                                    member = info.filename.replace("\\", "/")
+                                    if (not info.is_dir() and member.casefold().endswith(".sql")
+                                            and not any(part.casefold() in SKIP_DIRS for part in member.split("/")[:-1])):
+                                        result.append((source, path, info.filename))
+                        except (OSError, zipfile.BadZipFile) as exc:
+                            raise RuntimeError(f"Не удалось прочитать SQL-архив {path}: {exc}") from exc
     # Source base snapshots, then full/release db dumps, then ordered updates.
-    def order(entry: tuple[str, Path, str | None]) -> tuple[str, int, str]:
-        rel = entry[1].relative_to(ROOT).as_posix().lower()
+    def order(entry: tuple[str, Path, str | None]) -> tuple[str, int, str, str]:
+        original = entry[1].relative_to(ROOT).as_posix()
+        rel = original.casefold()
         if "/repo/sql/base/" in rel:
             rank = 0
         elif "/db/" in rel:
             rank = 1
         else:
             rank = 2
-        return entry[0], rank, rel + ("!" + (entry[2] or ""))
+        ref = original + ("!" + entry[2] if entry[2] else "")
+        return entry[0], rank, ref.casefold(), ref
     return sorted(result, key=order)
-
-
-def source_inventory() -> dict:
-    global _INVENTORY_CACHE
-    if _INVENTORY_CACHE is None:
-        _INVENTORY_CACHE = json.loads((PORTING / "inventory.json").read_text(encoding="utf-8"))
-    return _INVENTORY_CACHE
 
 
 def source_revision(source: str) -> str | None:
@@ -333,7 +339,13 @@ def source_revision(source: str) -> str | None:
     source_repo = ROOT / ".porting" / "sources" / source / "repo"
     if not (source_repo / ".git").exists():
         return None
-    return source_inventory()[source].get("identity", {}).get("revision")
+    try:
+        result = subprocess.run(["git", "-C", str(source_repo), "rev-parse", "--verify", "HEAD"],
+                                capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    revision = result.stdout.strip()
+    return revision if result.returncode == 0 and re.fullmatch(r"[0-9a-f]{40,64}", revision) else None
 
 
 def open_sql(path: Path, member: str | None) -> TextIO:
@@ -1060,12 +1072,14 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
 
 
 def build_index(_: argparse.Namespace) -> int:
+    sources = active_files()
+    if not sources:
+        raise RuntimeError("SQL-источники не найдены. Подготовьте .porting/sources/<source>/repo/ и/или db/.")
     PORTING.mkdir(parents=True, exist_ok=True)
     if INDEX.exists():
         INDEX.unlink()
-    conn = db_connect()
+    conn = db_connect(INDEX)
     schemas: dict[tuple[str, str], list[str]] = {}
-    sources = active_files()
     counts = {s: 0 for s in ("alexkulya", "loap", "skyfire")}
     # First pass indexes localized rows, avoiding the cost of decoding every base entity row.
     for source, path, member in sources:
