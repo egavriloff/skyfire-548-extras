@@ -145,7 +145,7 @@ class LocalizationTests(unittest.TestCase):
             schema = {}
             if source == "alexkulya":
                 sql = "CREATE TABLE `gossip_menu_option` (`menu_id` int,`id` int,`option_text` text,`option_id` int); INSERT INTO `gossip_menu_option` VALUES (7,2,'Speak',77);"
-                expected = {"optiontext": "Speak"}
+                expected = {"optiontext": "Speak", "optiontype": 77}
             else:
                 sql = "CREATE TABLE `gossip_menu_option` (`MenuID` int,`OptionID` int,`OptionText` text,`OptionBroadcastTextID` int); INSERT INTO `gossip_menu_option` VALUES (7,2,'Speak',77);"
                 expected = {"optionbroadcasttextid": 77, "optiontext": "Speak"}

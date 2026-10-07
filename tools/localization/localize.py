@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import sys
 import zipfile
+from contextlib import closing
 from collections import deque
 from pathlib import Path
 from typing import Iterator, TextIO
@@ -50,6 +51,26 @@ SPECS = {
         "source_target_fields": {"optiontext": "optiontext", "boxtext": "boxtext"},
         "wide_fields": {},
     },
+}
+
+GOSSIP_FIELDS = {
+    "optionbroadcasttextid": ("optionbroadcasttextid", "option_broadcast_text_id"),
+    "boxbroadcasttextid": ("boxbroadcasttextid", "box_broadcast_text_id"),
+    "optiontext": ("optiontext", "option_text"), "boxtext": ("boxtext", "box_text"),
+    "optiontype": ("optiontype", "option_id"), "optionicon": ("optionicon", "option_icon"),
+    "optionnpcflag": ("optionnpcflag", "npc_option_npcflag"),
+    "actionmenuid": ("actionmenuid", "action_menu_id"), "actionpoiid": ("actionpoiid", "action_poi_id"),
+    "boxcoded": ("boxcoded", "box_coded"), "boxmoney": ("boxmoney", "box_money"),
+}
+GO_FIELDS = {"type", "displayid", "name", "castbarcaption", "iconname", "unk1", "size", "faction", "flags", "ainame", "scriptname"} | {f"data{n}" for n in range(32)} | {f"questitem{n}" for n in range(1, 7)}
+GO_ALIAS_RULES = {57708: ("lamp-post-57708", "Lamp Post", "Lamppost", 8),
+                  170524: ("bench-bracket-170524", "Bench", "Bench]", 7)}
+GOSSIP_ALIAS_RULES = {
+    (0, 1): ("vendor-terminal-period", "I want to browse your goods.", "I want to browse your goods", 3370),
+    (0, 3): ("trainer-terminal-punctuation", "Train me.", "Train me!", 3266),
+    (0, 9): ("guild-crest-terminal-period", "I want to create a guild crest.", "I want to create a guild crest", 3415),
+    (125, 0): ("astor-apostrophes-125", "You've got something I need, Astor. And I'll be taking it now.", "You''ve got something I need, Astor. And I''ll be taking it now.", 2591),
+    (126, 0): ("astor-apostrophe-126", "You're Astor Hadren, right?", "You''re Astor Hadren, right?", 2589),
 }
 
 
@@ -131,10 +152,15 @@ class Tokens:
                 else:
                     value.append(n)
             return ("string" if quote != "`" else "word", "".join(value))
+        if c in "<>!":
+            operator = c
+            if self._peek() == "=" or (c == "<" and self._peek() == ">"):
+                operator += self._char()
+            return ("word", operator)
         if c in "(),.;=":
             return (c, c)
         value = [c]
-        while self._peek() and not self._peek().isspace() and self._peek() not in "(),.;='\"`#":
+        while self._peek() and not self._peek().isspace() and self._peek() not in "(),.;=<>!'\"`#":
             value.append(self._char())
         return ("word", "".join(value))
 
@@ -379,6 +405,7 @@ def db_connect(path: Path = INDEX) -> sqlite3.Connection:
     conn.execute("""CREATE TABLE IF NOT EXISTS warnings (
         source TEXT NOT NULL, file TEXT NOT NULL, message TEXT NOT NULL)""")
     conn.execute("CREATE TABLE IF NOT EXISTS gossip_boxes(source TEXT,entity TEXT,boxtext TEXT,file TEXT,PRIMARY KEY(source,entity))")
+    conn.execute("CREATE TABLE IF NOT EXISTS gossip_aux(source TEXT,entity TEXT,table_name TEXT,fields TEXT,file TEXT,PRIMARY KEY(source,entity,table_name))")
     conn.execute("CREATE INDEX IF NOT EXISTS entities_name_idx ON entities(source,kind,json_extract(fields,'$.name'))")
     return conn
 
@@ -511,7 +538,10 @@ def sql_value(expr: list[tuple[str, str]], variables: dict[str, object] | None =
                 return float(val)
             except ValueError:
                 return val
-    return "".join(x[1] for x in expr)
+    combined = "".join(x[1] for x in expr)
+    if re.fullmatch(r"[-+]?\d+\.\d+", combined):
+        return float(combined)
+    return combined
 
 
 def normalized_row(source: str, table: str, cols: list[str], vals: list[object]) -> tuple[str, str, str, dict[str, object]] | None:
@@ -557,11 +587,7 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
 def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
     if kind == "gossip_menu_option":
         fields = {}
-        for canonical, aliases in {
-            "optionbroadcasttextid": ("optionbroadcasttextid", "option_broadcast_text_id"),
-            "optiontext": ("optiontext", "option_text"),
-            "boxtext": ("boxtext", "box_text"),
-        }.items():
+        for canonical, aliases in GOSSIP_FIELDS.items():
             for alias in aliases:
                 if alias in row:
                     fields[canonical] = row[alias]
@@ -569,7 +595,7 @@ def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
         return fields
     if kind == "item":
         return {k: row.get(k) for k in ("name", "class", "subclass", "description") if k in row}
-    return {k: row.get(k) for k in ("name", "type", "castbarcaption") if k in row}
+    return {k: row[k] for k in sorted(GO_FIELDS) if k in row}
 
 
 def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[str, object], file: str, rank: int) -> None:
@@ -610,7 +636,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
         skip_statement(t)
         return
     locale_tables = {spec["target_table"] if source == "skyfire" else spec["source_table"] for spec in SPECS.values()}
-    entity_tables = {spec["target_entity"] for spec in SPECS.values()} | {"gossip_menu_option_box"}
+    entity_tables = {spec["target_entity"] for spec in SPECS.values()} | {"gossip_menu_option_box", "gossip_menu_option_action"}
     relevant = locale_tables if phase == "locales" else entity_tables
     if table not in relevant:
         t.skip_raw_statement()
@@ -652,7 +678,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         key_value = int(sql_value([prefix], t.variables))
                     except (ValueError, TypeError):
                         key_value = None
-                    if table in ("gossip_menu_option", "gossip_menu_option_box"):
+                    if table in ("gossip_menu_option", "gossip_menu_option_box", "gossip_menu_option_action"):
                         comma = t.get()
                         second = t.get()
                         comma2 = t.get()
@@ -710,11 +736,14 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         if normalized:
                             kind, entity, locale, fields = normalized
                             persist_locale(conn, source, kind, entity, locale, fields, file, rank)
-                if table == "gossip_menu_option_box":
+                if table in ("gossip_menu_option_box", "gossip_menu_option_action"):
                     menu, option = row.get("menuid"), row.get("optionindex", row.get("optionid"))
                     if isinstance(menu, int) and isinstance(option, int):
-                        conn.execute("INSERT OR REPLACE INTO gossip_boxes VALUES(?,?,?,?)",
-                                     (source, json.dumps((menu, option)), row.get("boxtext"), file))
+                        if table == "gossip_menu_option_box":
+                            conn.execute("INSERT OR REPLACE INTO gossip_boxes VALUES(?,?,?,?)",
+                                         (source, json.dumps((menu, option)), row.get("boxtext"), file))
+                        conn.execute("INSERT OR REPLACE INTO gossip_aux VALUES(?,?,?,?,?)",
+                                     (source, json.dumps((menu, option)), table, json.dumps(identity_fields("gossip_menu_option", row), ensure_ascii=False), file))
                 # Base entity identity records.
                 base_map = {"item_template": "item", "gameobject_template": "gameobject", "gossip_menu_option": "gossip_menu_option"}
                 if table in base_map:
@@ -740,7 +769,7 @@ parse_insert.last_commit = 0
 TARGET_TABLES = {
     "item_template_locale", "locales_item", "item_template",
     "gameobject_template_locale", "locales_gameobject", "gameobject_template",
-    "gossip_menu_option_locale", "gossip_menu_option", "gossip_menu_option_box",
+    "gossip_menu_option_locale", "gossip_menu_option", "gossip_menu_option_box", "gossip_menu_option_action",
 }
 
 
@@ -839,6 +868,40 @@ def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variab
     pos, fragments, params = 0, [], []
     while pos < len(tokens):
         col = tokens[pos][1].lower()
+        if tokens[pos][0] == "(":
+            end = next(i for i in range(pos + 1, len(tokens)) if tokens[i][0] == ")")
+            columns = [token for token in tokens[pos + 1:end] if token[0] != ","]
+            expressions = []
+            for column in columns:
+                expression, _ = predicate_sql([column, ("=", "="), ("word", "0")], kind, storage, variables)
+                expressions.append(expression[:-2])
+            if tokens[end + 1][1].upper() != "IN" or tokens[end + 2][0] != "(":
+                raise ValueError("неподдерживаемое tuple condition")
+            pos = end + 3
+            tuples = []
+            while tokens[pos][0] != ")":
+                if tokens[pos][0] != "(":
+                    raise ValueError("ожидается literal tuple")
+                pos += 1
+                values = []
+                while tokens[pos][0] != ")":
+                    if tokens[pos][0] != ",":
+                        values.append(sql_value([tokens[pos]], variables))
+                    pos += 1
+                if len(values) != len(columns):
+                    raise ValueError("неполный tuple")
+                tuples.append("(" + ",".join("?" for _ in values) + ")")
+                params.extend(values)
+                pos += 1
+                if tokens[pos][0] == ",":
+                    pos += 1
+            fragments.append("(" + ",".join(expressions) + ") IN (" + ",".join(tuples) + ")")
+            pos += 1
+            if pos < len(tokens):
+                if tokens[pos][1].upper() != "AND":
+                    raise ValueError("ожидается AND")
+                pos += 1
+            continue
         pos += 1
         if kind == "gossip_menu_option" and col in ("menuid", "menu_id", "optionid", "optionindex", "id"):
             expression = "json_extract(entity,'$[%d]')" % (0 if col in ("menuid", "menu_id") else 1)
@@ -856,8 +919,8 @@ def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variab
             raise ValueError("неполный WHERE")
         op = tokens[pos][1].upper()
         pos += 1
-        if op == "=":
-            fragments.append(expression + "=?")
+        if op in ("=", "<>", "!=", "<", ">", "<=", ">="):
+            fragments.append(expression + op + "?")
             params.append(sql_value([tokens[pos]], variables))
             pos += 1
         elif op == "BETWEEN":
@@ -908,6 +971,20 @@ def parse_delete(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         t.skip_raw_statement()
         return
     tokens = statement_tokens(t)
+    if table in ("gossip_menu_option_box", "gossip_menu_option_action"):
+        if phase and phase != "entities":
+            return
+        try:
+            if not tokens or tokens[0][1].upper() != "WHERE":
+                raise ValueError("DELETE без WHERE запрещён")
+            condition, params = predicate_sql(tokens[1:], "gossip_menu_option", "entities", t.variables)
+            conn.execute("DELETE FROM gossip_aux WHERE source=? AND table_name=? AND " + condition, [source, table] + params)
+            if table == "gossip_menu_option_box":
+                # This compatibility table contains only the same composite key.
+                conn.execute("DELETE FROM gossip_boxes WHERE source=? AND entity NOT IN (SELECT entity FROM gossip_aux WHERE source=? AND table_name=?)", (source, source, table))
+        except (ValueError, IndexError) as exc:
+            parser_warning(conn, source, file, f"DELETE {table}: {exc}")
+        return
     info = table_info(table, source)
     if not info:
         return
@@ -932,6 +1009,10 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
             "gossip_menu_option": {"optiontext": "optiontext", "option_text": "optiontext", "boxtext": "boxtext", "box_text": "boxtext",
                                    "optionbroadcasttextid": "optionbroadcasttextid", "option_broadcast_text_id": "optionbroadcasttextid"},
         }[kind]
+        if kind == "gameobject":
+            aliases.update({field: field for field in GO_FIELDS})
+        elif kind == "gossip_menu_option":
+            aliases.update({alias: field for field, names in GOSSIP_FIELDS.items() for alias in names})
         return (aliases[column], "entity") if column in aliases else None
     if table in (spec["source_table"], spec["target_table"]):
         source_aliases = {"item": {"name": "name", "description": "description"},
@@ -1025,6 +1106,13 @@ def apply_gossip_box_join(conn: sqlite3.Connection, source: str, file: str, toke
     for entity, serialized, boxtext in conn.execute("SELECT e.entity,e.fields,b.boxtext FROM entities e LEFT JOIN gossip_boxes b ON b.source=e.source AND b.entity=e.entity WHERE e.source=? AND e.kind='gossip_menu_option'", (source,)).fetchall():
         fields = json.loads(serialized)
         fields["boxtext"] = boxtext
+        for table, defaults in (("gossip_menu_option_action", {"actionmenuid": 0, "actionpoiid": 0}),
+                                ("gossip_menu_option_box", {"boxcoded": 0, "boxmoney": 0, "boxbroadcasttextid": 0})):
+            row = conn.execute("SELECT fields,file FROM gossip_aux WHERE source=? AND entity=? AND table_name=?", (source, entity, table)).fetchone()
+            extra = json.loads(row[0]) if row else {}
+            fields.update({key: extra.get(key) if extra.get(key) is not None else value for key, value in defaults.items()})
+            if row:
+                fields.setdefault("_structural_provenance", {})[table] = row[1]
         conn.execute("UPDATE entities SET fields=?,file=?,rank=? WHERE source=? AND kind='gossip_menu_option' AND entity=?",
                      (json.dumps(fields, ensure_ascii=False), file, rank_for(file), source, entity))
     return True
@@ -1053,9 +1141,12 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         for part in split_tokens(tokens[1:where_pos], ","):
             if part and normalized_update_field(kind, table, part[0][1].lower()):
                 relevant = True
-                if len(part) != 3 or part[1][0] != "=":
+                if len(part) < 3 or part[1][0] != "=":
                     raise ValueError("неподдерживаемое выражение SET")
-                assignments[part[0][1].lower()] = sql_value([part[2]], t.variables)
+                expression = part[2:]
+                if len(expression) != 1 and not re.fullmatch(r"[-+]?\d+\.\d+", "".join(token[1] for token in expression)):
+                    raise ValueError("неподдерживаемое выражение SET")
+                assignments[part[0][1].lower()] = sql_value(expression, t.variables)
         if not relevant:
             return  # Gameplay metadata is intentionally outside this index.
         condition, params = predicate_sql(tokens[where_pos + 1:], kind, storage, t.variables)
@@ -1069,6 +1160,14 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
                 raise ValueError("UPDATE не применён")
     except (ValueError, IndexError) as exc:
         parser_warning(conn, source, file, f"UPDATE {table}: {exc}")
+        if storage == "entities" and kind in ("gameobject", "gossip_menu_option"):
+            condition, params = "1", []
+            try:
+                marker = next(i for i, token in enumerate(tokens) if token[1].upper() == "WHERE")
+                condition, params = predicate_sql(tokens[marker + 1:], kind, storage, t.variables)
+            except (ValueError, IndexError, StopIteration):
+                pass
+            conn.execute("UPDATE entities SET fields=json_set(fields,'$._evidence_incomplete',1) WHERE source=? AND kind=? AND " + condition, [source, kind] + params)
 
 
 def build_index(_: argparse.Namespace) -> int:
@@ -1098,6 +1197,7 @@ def build_index(_: argparse.Namespace) -> int:
     candidates_by_source = {}
     for source in ("alexkulya", "loap", "skyfire"):
         ids = {row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE source=?", (source,))}
+        ids.update(row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE kind='gossip_menu_option'"))
         if source == "skyfire":
             for upstream in ("alexkulya", "loap"):
                 ids.update(row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE source=?", (upstream,)))
@@ -1194,10 +1294,11 @@ def identity_ok(conn: sqlite3.Connection, kind: str, entity: str, sources: tuple
     return (True, "identity verified") if seen else (False, "no upstream base identity")
 
 
-def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str, field: str) -> tuple[str, dict[str, object]]:
+def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str, field: str, *, indexed_provenance: bool = False,
+                  identity_sources: tuple[str, ...] = ("alexkulya", "loap")) -> tuple[str, dict[str, object]]:
     if locale not in LOCALES:
         return "UNSUPPORTED", {"reason": "unknown locale"}
-    identity, reason = identity_ok(conn, kind, entity)
+    identity, reason = identity_ok(conn, kind, entity, identity_sources)
     if not identity:
         return ("MISSING" if reason == "target entity missing" else "UNSUPPORTED"), {"reason": reason}
     if locale == "enUS":
@@ -1208,7 +1309,7 @@ def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
                 text = json.loads(row[0]).get(field)
                 if text not in (None, ""):
                     upstream[source] = str(text)
-                    revision = source_revision(source)
+                    revision = None if indexed_provenance else source_revision(source)
                     provenance[source] = {"repository_revision": revision, "revision_verified": revision is not None,
                                           "file": row[1], "table": SPECS[kind]["target_entity"]}
         target_row = conn.execute("SELECT fields FROM entities WHERE source='skyfire' AND kind=? AND entity=?", (kind, entity)).fetchone()
@@ -1229,7 +1330,7 @@ def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         item = get_record(conn, source, kind, entity, locale)
         if item and item[0].get(field) not in (None, ""):
             upstream[source] = str(item[0][field])
-            revision = source_revision(source)
+            revision = None if indexed_provenance else source_revision(source)
             provenance[source] = {"repository_revision": revision, "revision_verified": revision is not None,
                                   "file": item[1], "table": SPECS[kind]["source_table"]}
     target_record = target_locale_record(conn, kind, entity, locale)
@@ -1303,9 +1404,12 @@ def sql_quote(value: object) -> str:
     return "'" + text + "'"
 
 
-def export_rows(conn: sqlite3.Connection, kind: str, entity: str, locales: list[str] | None = None) -> list[str]:
+def export_rows(conn: sqlite3.Connection, kind: str, entity: str, locales: list[str] | None = None, *, comparisons: dict | None = None,
+                allow_single_identity: bool = False, allow_verified_aliases: bool = False) -> list[str]:
     ok, reason = identity_ok(conn, kind, entity)
-    if not ok:
+    single_identity_mode = not ok and kind == "item" and allow_single_identity
+    alias_mode = not ok and kind in ("gameobject", "gossip_menu_option") and allow_verified_aliases
+    if not ok and not single_identity_mode and not alias_mode:
         raise ValueError(f"Экспорт запрещён: {reason}")
     sql: list[str] = []
     if kind == "gossip_menu_option":
@@ -1315,20 +1419,31 @@ def export_rows(conn: sqlite3.Connection, kind: str, entity: str, locales: list[
     for locale in sorted(set(locales or [x for x in LOCALES if x != "enUS"]), key=lambda x: LOCALES[x]):
         if locale == "enUS":
             continue
+        proof = single_item_identity(conn, entity, locale) if single_identity_mode else None
+        alias = verified_alias(conn, kind, entity, locale) if alias_mode else None
+        if alias_mode and not alias:
+            raise ValueError("Экспорт запрещён: условия VERIFIED_ALIAS не выполнены")
+        if single_identity_mode and not proof:
+            raise ValueError("Экспорт запрещён: условия SAFE_SINGLE_IDENTITY не выполнены")
         fields_out = {}
         provenance = []
         statuses = []
         for field in SPECS[kind]["text_fields"]:
-            status, details = compare_value(conn, kind, entity, locale, field)
+            status, details = comparisons[(locale, field)] if comparisons is not None else compare_value(
+                conn, kind, entity, locale, field, identity_sources=("loap",) if alias else (proof["confirmed_upstream"],) if proof else ("alexkulya", "loap"))
             statuses.append(status)
             ups = details.get("upstream", {})
-            if status in ("MATCH", "SOURCE_ONLY") and ups:
+            if status in ("MATCH", "SOURCE_ONLY", "SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS") and ups:
                 fields_out[field] = next(iter(ups.values()))
                 for src, p in details.get("provenance", {}).items():
                     revision = p.get("repository_revision") or "revision-unverified"
                     provenance.append(f"{src}@{revision}:{p['file']}:{p['table']}")
         if not fields_out:
             continue
+        if proof:
+            sql.append(f"-- SAFE_SINGLE_IDENTITY; confirmed={proof['confirmed_upstream']}; rejected={proof['rejected_upstream']}; --allow-single-identity")
+        if alias:
+            sql.append(f"-- VERIFIED_ALIAS; rule={alias['rule_name']}; --allow-verified-aliases")
         comment = " | ".join(sorted(set(provenance)))
         if kind == "gossip_menu_option":
             option_text = fields_out.get("optiontext", "")
@@ -1407,10 +1522,289 @@ def command_manifest(args: argparse.Namespace) -> int:
     return 0
 
 
+def single_item_identity(conn: sqlite3.Connection, entity: str, locale: str) -> dict | None:
+    """A renamed upstream may corroborate text, never structural identity."""
+    bases = {}
+    for source in ("alexkulya", "loap", "skyfire"):
+        row = conn.execute("SELECT fields,file FROM entities WHERE source=? AND kind='item' AND entity=?", (source, entity)).fetchone()
+        if not row:
+            return None
+        bases[source] = {"fields": json.loads(row[0]), "file": row[1], "table": SPECS["item"]["target_entity"]}
+    fields = {source: base["fields"] for source, base in bases.items()}
+    if not all(isinstance(base.get("name"), str) and base["name"].strip() for base in fields.values()):
+        return None
+    confirmed = [source for source in ("alexkulya", "loap") if identities_match("item", fields[source], fields["skyfire"])]
+    if len(confirmed) != 1:
+        return None
+    # All indexed non-text fields must be present and equal in all three bases.
+    # class/subclass are mandatory; a partial/unknown structural field fails closed.
+    structural = sorted(set().union(*(base.keys() for base in fields.values())) - {"name", "description"})
+    if not {"class", "subclass"}.issubset(structural):
+        return None
+    for field in structural:
+        values = [base.get(field) for base in fields.values()]
+        if any(value is None for value in values) or not all(type(value) is type(values[0]) and value == values[0] for value in values):
+            return None
+        if field in ("class", "subclass") and (not isinstance(values[0], int) or isinstance(values[0], bool) or values[0] < 0):
+            return None
+    records = {source: get_record(conn, source, "item", entity, locale) for source in ("alexkulya", "loap")}
+    if not all(records.values()):
+        return None
+    texts = {}
+    for field in SPECS["item"]["text_fields"]:
+        a, b = (records[source][0].get(field) for source in ("alexkulya", "loap"))
+        a, b = (None if value in (None, "") else value for value in (a, b))
+        if a != b or (a is not None and not isinstance(a, str)):
+            return None
+        if a is not None:
+            texts[field] = a
+    if not texts:
+        return None
+    rejected = next(source for source in ("alexkulya", "loap") if source != confirmed[0])
+    return {"confirmed_upstream": confirmed[0], "rejected_upstream": rejected,
+            "base_entities": bases, "structural_fields_checked": structural, "localization_text": texts,
+            "provenance": {source: {"file": row[1], "table": SPECS["item"]["source_table"]} for source, row in records.items()},
+            "reason": "Один upstream подтвердил identity SkyFire; оба upstream дают одинаковый текст; class/subclass и все индексированные структурные поля совпадают"}
+
+
+def verified_alias(conn: sqlite3.Connection, kind: str, entity: str, locale: str) -> dict | None:
+    if locale != "ruRU":
+        return None
+    key = json.loads(entity)
+    if kind == "gameobject" and (not isinstance(key, int) or isinstance(key, bool)):
+        return None
+    if kind == "gossip_menu_option" and (not isinstance(key, list) or len(key) != 2 or not all(isinstance(part, int) and not isinstance(part, bool) for part in key)):
+        return None
+    lookup = tuple(key) if kind == "gossip_menu_option" and isinstance(key, list) else key
+    rule = (GO_ALIAS_RULES if kind == "gameobject" else GOSSIP_ALIAS_RULES if kind == "gossip_menu_option" else {}).get(lookup)
+    if rule is None:
+        return None
+    bases = {}
+    for source in ("alexkulya", "loap", "skyfire"):
+        row = conn.execute("SELECT fields,file FROM entities WHERE source=? AND kind=? AND entity=?", (source, kind, entity)).fetchone()
+        if not row:
+            return None
+        bases[source] = {"fields": json.loads(row[0]), "file": row[1], "table": SPECS[kind]["target_entity"]}
+    fields = {source: base["fields"] for source, base in bases.items()}
+    if any(base.get("_evidence_incomplete") for base in fields.values()):
+        return None
+    text_field = "name" if kind == "gameobject" else "optiontext"
+    rule_name, old, target_text, expected = rule
+    if fields["alexkulya"].get(text_field) != old or fields["skyfire"].get(text_field) != target_text:
+        return None
+    if fields["loap"].get(text_field) != (target_text if kind == "gameobject" else old):
+        return None
+    if kind == "gameobject":
+        required = {"type", "displayid", "size"} | {f"data{n}" for n in range(32)}
+        if any(base.get("type") != expected for base in fields.values()):
+            return None
+        structural = sorted(set().union(*(base.keys() for base in fields.values())) - {"name", "castbarcaption"})
+    else:
+        required = {"optiontype", "optionicon", "optionnpcflag", "actionmenuid", "actionpoiid", "boxcoded", "boxmoney"}
+        structural = sorted(required | {"optionbroadcasttextid", "boxbroadcasttextid"})
+        if fields["loap"].get("optionbroadcasttextid") != expected or fields["skyfire"].get("optionbroadcasttextid") != expected:
+            return None
+    evidence = {}
+    for field in structural:
+        if field.startswith("_"):
+            continue
+        present = {source: base[field] for source, base in fields.items() if field in base}
+        if field in required and (len(present) != 3 or any(value is None for value in present.values())):
+            return None
+        if field in required:
+            types = (int, float) if field == "size" else (int,)
+            if any(not isinstance(value, types) or isinstance(value, bool) for value in present.values()):
+                return None
+        if len(present) > 1 and not all(value == next(iter(present.values())) for value in present.values()):
+            return None
+        evidence[field] = present
+    records = {source: get_record(conn, source, kind, entity, locale) for source in ("alexkulya", "loap", "skyfire")}
+    texts = {source: {field: None if not row or row[0].get(field) in (None, "") else row[0][field] for field in SPECS[kind]["text_fields"]}
+             for source, row in records.items()}
+    if any(value is not None for value in texts["skyfire"].values()):
+        return None
+    if not isinstance(texts["alexkulya"][text_field], str) or not texts["alexkulya"][text_field]:
+        return None
+    if any(value is not None and not isinstance(value, str) for source in texts for value in texts[source].values()):
+        return None
+    if kind == "gameobject":
+        if not records["loap"] or texts["alexkulya"] != texts["loap"]:
+            return None
+    elif records["loap"]:
+        if any(texts["alexkulya"][field] != texts["loap"][field] for field in SPECS[kind]["text_fields"]):
+            return None
+    return {"rule_name": rule_name, "reason": "Фиксированный key и точные English aliases подтверждены; доступная структура не противоречит; ruRU candidate согласован; target locale пустой",
+            "source_target_text": {source: base[text_field] for source, base in fields.items()},
+            "structural_evidence": evidence, "base_entities": bases, "localization_text": texts,
+            "broadcast_evidence": evidence.get("optionbroadcasttextid") if kind == "gossip_menu_option" else None,
+            "provenance": {source: {"file": row[1], "table": SPECS[kind]["source_table"]} for source, row in records.items() if row}}
+
+
+def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str, *, allow_single_identity: bool = False,
+                  allow_verified_aliases: bool = False) -> tuple[dict, list[str]]:
+    key = json.loads(entity)
+    key_parts = key if kind == "gossip_menu_option" and isinstance(key, list) else [key]
+    valid_key = (len(key_parts) == (2 if kind == "gossip_menu_option" else 1)
+                 and all(isinstance(part, int) and not isinstance(part, bool) and part >= 0 for part in key_parts))
+    records = {source: get_record(conn, source, kind, entity, locale) for source in ("alexkulya", "loap", "skyfire")}
+    values = {source: {field: record[0].get(field) if record else None for field in SPECS[kind]["text_fields"]}
+              for source, record in records.items()}
+    provenance = {source: {"file": record[1], "table": SPECS[kind]["target_table"] if source == "skyfire" else SPECS[kind]["source_table"]}
+                  for source, record in records.items() if record}
+    candidates = [source for source in ("alexkulya", "loap") if any(value not in (None, "") for value in values[source].values())]
+    identity, identity_reason = identity_ok(conn, kind, entity) if candidates else (False, "no candidates")
+    proof = single_item_identity(conn, entity, locale) if kind == "item" and candidates and not identity and valid_key else None
+    alias = verified_alias(conn, kind, entity, locale) if kind in ("gameobject", "gossip_menu_option") and valid_key and candidates else None
+    # A translation donor must have its own verified identity; another upstream's
+    # matching base row cannot establish identity for a SOURCE_ONLY donor.
+    if identity:
+        for source in candidates:
+            if base_entity(conn, source, kind, entity) is None:
+                identity, identity_reason = False, f"{source} no upstream base identity"
+                break
+    comparisons = {}
+    for field in SPECS[kind]["text_fields"]:
+        if candidates and not identity and not proof and not alias:
+            status, detail = "UNSUPPORTED", {"reason": identity_reason}
+        elif not candidates:
+            status, detail = ("TARGET_IDENTICAL" if values["skyfire"][field] not in (None, "") else "MISSING"), {}
+        else:
+            # The index does not store upstream revisions. Do not let live Git
+            # HEAD alter output from an otherwise unchanged index.
+            status, detail = compare_value(conn, kind, entity, locale, field, indexed_provenance=True,
+                                          identity_sources=("loap",) if alias else (proof["confirmed_upstream"],) if proof else ("alexkulya", "loap"))
+            if alias and status in ("MATCH", "SOURCE_ONLY"):
+                status = "VERIFIED_ALIAS"
+            if proof and status == "MATCH":
+                status = "SAFE_SINGLE_IDENTITY"
+        if not valid_key:
+            status, detail = "UNSUPPORTED", {"reason": "Неподдерживаемый entity key"}
+        if any(value not in (None, "") and not isinstance(value, str) for value in (values[source][field] for source in values)):
+            status, detail = "UNSUPPORTED", {"reason": "non-text localization value"}
+        comparisons[field] = {"status": status, **detail}
+    statuses = {value["status"] for value in comparisons.values()}
+    sql = []
+    if "UNSUPPORTED" in statuses:
+        status = "UNSUPPORTED"
+        reason = "Identity не подтверждена: " + identity_reason if candidates and not identity else "Неподдерживаемые localization data"
+    elif "CONFLICT" in statuses:
+        status, reason = "CONFLICT", "Переводы upstream расходятся или отличаются от непустого SkyFire translation"
+    elif "VERIFIED_ALIAS" in statuses:
+        status = "VERIFIED_ALIAS"
+        reason = alias["reason"] + ("; экспорт разрешён --allow-verified-aliases" if allow_verified_aliases else "; экспорт требует --allow-verified-aliases")
+        if allow_verified_aliases:
+            prepared = {(locale, field): (detail["status"], {k: v for k, v in detail.items() if k != "status"}) for field, detail in comparisons.items()}
+            sql = export_rows(conn, kind, entity, [locale], comparisons=prepared, allow_verified_aliases=True)
+    elif "SAFE_SINGLE_IDENTITY" in statuses:
+        status = "SAFE_SINGLE_IDENTITY"
+        reason = proof["reason"] + ("; экспорт разрешён --allow-single-identity" if allow_single_identity else "; экспорт требует --allow-single-identity")
+        if allow_single_identity:
+            prepared = {(locale, field): (detail["status"], {k: v for k, v in detail.items() if k != "status"}) for field, detail in comparisons.items()}
+            sql = export_rows(conn, kind, entity, [locale], comparisons=prepared, allow_single_identity=True)
+    elif statuses & {"MATCH", "SOURCE_ONLY"}:
+        status = "SOURCE_ONLY" if "SOURCE_ONLY" in statuses else "MATCH"
+        prepared = {(locale, field): (detail["status"], {k: v for k, v in detail.items() if k != "status"}) for field, detail in comparisons.items()}
+        sql = export_rows(conn, kind, entity, [locale], comparisons=prepared)
+        reason = "Безопасный перевод"
+    elif "TARGET_IDENTICAL" in statuses:
+        status, reason = "TARGET_IDENTICAL", "SkyFire уже содержит совпадающий перевод; SQL не требуется"
+    else:
+        status, reason = "MISSING", "Нет upstream translation для выбранной locale"
+    # Keep human-facing report reasons in Russian; raw identity details remain
+    # inspectable through the existing single-entity commands.
+    reason = reason.replace("target entity missing", "target entity отсутствует").replace("identity mismatch", "identity не совпадает").replace("no upstream base identity", "нет upstream base identity")
+    for detail in comparisons.values():
+        if "reason" in detail:
+            detail["reason"] = reason
+    entry = {"entity_type": kind, "entity_key": key, "locale": locale,
+             "status": status, "reason": reason, "candidates_found": bool(candidates),
+             "exported": bool(sql), "identity_failed": bool(candidates and not identity and not proof and not alias),
+             "values": values, "provenance": provenance, "fields": comparisons}
+    if proof:
+        entry["single_identity"] = proof
+    if alias:
+        entry["verified_alias"] = alias
+    if not sql or proof or alias:
+        entry["base_entities"] = {}
+        for source in ("alexkulya", "loap", "skyfire"):
+            row = conn.execute("SELECT fields,file FROM entities WHERE source=? AND kind=? AND entity=?", (source, kind, entity)).fetchone()
+            if row:
+                entry["base_entities"][source] = {"fields": json.loads(row[0]), "file": row[1], "table": SPECS[kind]["target_entity"]}
+    return entry, sql
+
+
+def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directory: Path, *, allow_single_identity: bool = False,
+                allow_verified_aliases: bool = False) -> dict:
+    if locale not in LOCALES or locale == "enUS":
+        raise ValueError("export-all поддерживает locale translations; enUS хранится в base entity tables")
+    kinds = sorted(set(kinds))
+    if any(kind not in SPECS for kind in kinds):
+        raise ValueError("Неподдерживаемый entity type")
+    directory.mkdir(parents=True, exist_ok=True)
+    summary = {}
+    report_path = directory / f"report-{locale}.json"
+    # Both the selection and output are streamed; only one entity's details are
+    # held in Python memory. A transaction keeps all queries on one snapshot.
+    with conn:
+        conn.execute("BEGIN")
+        with report_path.open("w", encoding="utf-8", newline="\n") as report:
+            header = {"target": "SkyFire 5.4.8", "locale": locale, "selection": "indexed_target_entities",
+                      "allow_single_identity": allow_single_identity,
+                      "allow_verified_aliases": allow_verified_aliases,
+                      "counter_units": "entity/locale; статусы взаимоисключающие; identity_failed входит в unsupported; skipped = total_target_entities - exported",
+                      "sql_files": {kind: f"{kind}-{locale}.sql" for kind in kinds}}
+            report.write(json.dumps(header, ensure_ascii=False, sort_keys=True, indent=2)[:-2] + ',\n  "entries": [\n')
+            first_entry = True
+            for kind in kinds:
+                counts = {name: 0 for name in ("total_target_entities", "candidates_found", "exported", "MATCH", "SOURCE_ONLY", "SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS", "TARGET_IDENTICAL", "CONFLICT", "MISSING", "UNSUPPORTED", "identity_failed", "unsupported", "skipped")}
+                summary[kind] = counts
+                order = "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),entity" if kind == "gossip_menu_option" else "json_extract(entity,'$'),entity"
+                rows = conn.execute("SELECT entity FROM entities WHERE source='skyfire' AND kind=? ORDER BY " + order, (kind,))
+                with (directory / f"{kind}-{locale}.sql").open("w", encoding="utf-8", newline="\n") as sql_file:
+                    sql_file.write(f"-- SkyFire 5.4.8; {kind}; {locale}; review SQL, не применён автоматически.\n")
+                    for (entity,) in rows:
+                        entry, statements = bulk_decision(conn, kind, entity, locale, allow_single_identity=allow_single_identity,
+                                                          allow_verified_aliases=allow_verified_aliases)
+                        counts["total_target_entities"] += 1
+                        counts["candidates_found"] += int(entry["candidates_found"])
+                        counts[entry["status"]] += 1
+                        counts["identity_failed"] += int(entry["identity_failed"])
+                        counts["unsupported"] += int(entry["status"] == "UNSUPPORTED")
+                        if statements:
+                            counts["exported"] += 1
+                            sql_file.write("\n".join(statements) + "\n")
+                        else:
+                            counts["skipped"] += 1
+                        if not statements or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
+                            if not first_entry:
+                                report.write(",\n")
+                            first_entry = False
+                            report.write(json.dumps(entry, ensure_ascii=False, sort_keys=True, indent=2))
+                print(f"{kind}: target {counts['total_target_entities']}, candidates {counts['candidates_found']}, exported {counts['exported']}, conflicts {counts['CONFLICT']}, skipped {counts['skipped']}", flush=True)
+            totals = {key: sum(counts[key] for counts in summary.values()) for key in next(iter(summary.values()), {})}
+            report.write('\n  ],\n  "summary": ' + json.dumps(summary, ensure_ascii=False, sort_keys=True, indent=2))
+            report.write(',\n  "totals": ' + json.dumps(totals, ensure_ascii=False, sort_keys=True, indent=2) + "\n}\n")
+    return summary
+
+
+def command_export_all(args: argparse.Namespace) -> int:
+    directory = PORTING / "review"
+    with closing(open_index()) as conn:
+        bulk_export(conn, [args.entity_type] if args.entity_type else list(SPECS), args.locale, directory,
+                    allow_single_identity=args.allow_single_identity, allow_verified_aliases=args.allow_verified_aliases)
+    print(f"SQL и report сохранены для review: {directory}")
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("index", help="построить локальный потоковый SQLite-индекс")
+    q = sub.add_parser("export-all", help="экспортировать безопасные переводы target entities и общий report")
+    q.add_argument("entity_type", nargs="?", choices=tuple(SPECS))
+    q.add_argument("--locale", required=True, choices=tuple(code for code in LOCALES if code != "enUS"))
+    q.add_argument("--allow-single-identity", action="store_true", help="разрешить item SAFE_SINGLE_IDENTITY после проверки одинаковых текстов и структуры")
+    q.add_argument("--allow-verified-aliases", action="store_true", help="разрешить только фиксированные gameobject/gossip aliases с полным evidence")
     for cmd in ("inspect", "compare", "export"):
         q = sub.add_parser(cmd)
         q.add_argument("entity_type", choices=tuple(SPECS))
@@ -1433,6 +1827,8 @@ def main() -> int:
     try:
         if args.command == "index":
             return build_index(args)
+        if args.command == "export-all":
+            return command_export_all(args)
         if args.command == "inspect":
             return command_inspect(args)
         if args.command == "compare":
