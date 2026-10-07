@@ -65,7 +65,11 @@ Each module should contain its own installation instructions, but the general pr
    - `characters`
    - `auth`
 
-3. Add or copy the module configuration if one is provided.
+3. Copy the module's `.conf.dist` beside the active `worldserver.conf`, then copy
+   it to `.conf` and edit that file. Modules using `modules/_common/ModuleConfig.h`
+   load defaults followed by user overrides on startup and `.reload config`.
+   For a separate installation, also copy `modules/_common` into the core's
+   `modules/` directory. Release archives include this shared directory.
 
 4. Re-run CMake if required.
 

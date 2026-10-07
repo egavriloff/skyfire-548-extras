@@ -24,7 +24,7 @@ This port targets ProjectSkyFire 5.4.8 specifically. Compatibility with other co
 
 ## Installation
 
-Copy the module directory into the SkyFire `modules` directory:
+Copy the module directory and the shared `modules/_common` directory into the SkyFire `modules` directory:
 
 ```text
 SkyFire_548/
@@ -64,9 +64,9 @@ Copy or rename it to:
 transmogrification.conf
 ```
 
-and place it where the port expects its additional configuration files.
+and place both files beside the `worldserver.conf` used by the server.
 
-The module loads its transmogrification configuration through SkyFire's `ConfigMgr`.
+The shared `_common/ModuleConfig.h` loader reads `transmogrification.conf.dist` first and then `transmogrification.conf` through SkyFire's `ConfigMgr`, at startup and on `.reload config`. No merge into `worldserver.conf` is required. If the main config path has no directory, files are resolved in the server's working directory. Loading results are written to the server log.
 
 Review the available options in `transmogrification.conf.dist` before starting the server.
 

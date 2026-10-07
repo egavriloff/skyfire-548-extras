@@ -39,7 +39,7 @@ Both need fixes: removal multiplies stored spell power by the stat multiplier; o
 - `Player::GiveXP` calls the XP hook after honoring the player's own XP lock. Set the hook amount to zero for module-blocked XP; never alter persistent XP flags. Quest XP routes through GiveXP. Logout is after SaveToDB, so avoiding persistent flags matters.
 - Store exact applied amounts in synchronized module-local memory, keyed by full GUID with map/instance identity. Clear before reapply, on exit/disable and erase on logout. No character SQL is required; old installed tables can remain unused.
 - Localized messages use `GetSkyFireString`; world SQL must target `skyfire_string(entry, content_default)`, not the upstream table.
-- Existing `modules/CMakeLists.txt` discovers `src` and generates `AddModulesScripts`; keep `Addmod_solocraftScripts` and `AddSC_solocraft_system`. Config files are installed/staged but are not automatically loaded: merge the distributed keys into worldserver.conf for reload support.
+- Existing `modules/CMakeLists.txt` discovers `src` and generates `AddModulesScripts`; keep `Addmod_solocraftScripts` and `AddSC_solocraft_system`. Config files are installed/staged; `WorldScript::OnConfigLoad` explicitly loads `solocraft.conf.dist` and then `solocraft.conf` beside the main config through `_common/ModuleConfig.h`, including reload support.
 
 Expected core modifications: **none**. No new loader/build mechanism, LFG patch or custom core APIs. Retain map-entry/roster behavior and explicitly document its limitations. Startup/in-game validation remains distinct from compilation.
 

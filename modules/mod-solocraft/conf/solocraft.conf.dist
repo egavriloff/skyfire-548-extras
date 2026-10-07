@@ -1,31 +1,78 @@
 ###################################################################################################
-# SoloCraft (GPL-2.0-or-later; AlexKulya / Legends of Azeroth)
-# Merge into worldserver.conf. Separate module configs are not auto-loaded by SkyFire.
-# Enable/announce/debuff/XP values: 0 or 1. Disabled by default.
-# Stats: flat bonus per weight (0..1000). Spell power: level * multiplier * weight (0..1000).
+# SoloCraft
+# GPL-2.0-or-later; AlexKulya / Legends of Azeroth
+#
+# Copy to solocraft.conf beside worldserver.conf and edit that file.
+# The module loads solocraft.conf.dist first, then solocraft.conf on startup/reload.
+#
+# SoloCraft scales the player for group content rather than scaling creatures.
+# Instance weights are used to calculate how strongly the player should be scaled.
+#
+# Enable/announce/debuff/XP values: 0 or 1.
+# Stats: flat bonus per weight (0..1000).
+# Spell power: level * multiplier * weight (0..1000).
 # Class weights: 0..100 percent, used in the late-entry penalty only.
-# Max.Level.Diff: 0..90; instance levels: 1..90. Weights: 0..1000 (0 disables that mode).
-# H keys retain upstream semantics: heroic dungeons OR 25-player raids, including LFR.
+# Max.Level.Diff: 0..90.
+# Instance levels: 1..90.
+# Weights: 0..1000; 0 disables that mode.
+#
+# H keys retain upstream semantics:
+# heroic dungeons OR 25-player raids, including LFR.
+#
 # Invalid numeric values are logged and replaced with their defaults.
-# XP.Enabled=0 blocks XP while scaled. XP.Balancing.Enabled=1 blocks XP for penalized entrants.
-# Group size uses the whole roster. Existing members are not rebalanced: exit/re-enter as a group.
+# XP.Enabled=0 blocks XP while scaled.
+# XP.Balancing.Enabled=1 blocks XP for penalized entrants.
+#
+# Group size uses the whole roster.
+# Existing members are not rebalanced: exit/re-enter as a group.
+###################################################################################################
+
+
+###################################################################################################
+# General
 ###################################################################################################
 
 Solocraft.Enable = 0
 Solocraft.Announce = 1
 SoloCraft.Debuff.Enable = 1
-SoloCraft.Spellpower.Mult = 2.5
-SoloCraft.Stats.Mult = 100.0
+
 Solocraft.XP.Enabled = 1
 Solocraft.XP.Balancing.Enabled = 1
+
 Solocraft.Max.Level.Diff = 10
+
+
+###################################################################################################
+# Player scaling
+###################################################################################################
+
+SoloCraft.Spellpower.Mult = 2.5
+SoloCraft.Stats.Mult = 100.0
+
+
+###################################################################################################
+# Default content weights
+#
+# Used when no more specific instance weight overrides the default.
+###################################################################################################
+
 Solocraft.Dungeon.Level = 90
+
 Solocraft.Dungeon = 5.0
 Solocraft.Heroic = 10.0
 Solocraft.Raid25 = 25.0
 Solocraft.Raid40 = 40.0
+
 Solocraft.ArgentTournamentRaidH10 = 10.0
 Solocraft.ArgentTournamentRaidH25 = 25.0
+
+
+###################################################################################################
+# Class weights
+#
+# Percentages used by late-entry balancing logic.
+###################################################################################################
+
 SoloCraft.Warrior = 100
 SoloCraft.Paladin = 100
 SoloCraft.Hunter = 100
@@ -37,6 +84,12 @@ SoloCraft.Mage = 100
 SoloCraft.Warlock = 100
 SoloCraft.Monk = 100
 SoloCraft.Druid = 100
+
+
+###################################################################################################
+# Instance level requirements — Classic
+###################################################################################################
+
 Solocraft.Stockades.Level = 22
 Solocraft.WailingCaverns.Level = 17
 Solocraft.RazorfenKraul.Level = 30
@@ -57,6 +110,12 @@ Solocraft.DireMaul.Level = 48
 Solocraft.BlackwingLair.Level = 40
 Solocraft.RuinsOfAhnQiraj.Level = 60
 Solocraft.TempleOfAhnQiraj.Level = 60
+
+
+###################################################################################################
+# Instance level requirements — The Burning Crusade
+###################################################################################################
+
 Solocraft.TheBlackMorass.Level = 68
 Solocraft.Karazahn.Level = 68
 Solocraft.TheBattleForMountHyjal.Level = 70
@@ -81,6 +140,12 @@ Solocraft.BlackTemple.Level = 70
 Solocraft.GruulsLair.Level = 70
 Solocraft.SunwellPlateau.Level = 70
 Solocraft.MagistersTerrace.Level = 68
+
+
+###################################################################################################
+# Instance level requirements — Wrath of the Lich King
+###################################################################################################
+
 Solocraft.Naxxramas.Level = 78
 Solocraft.UtgardeKeep.Level = 78
 Solocraft.UtgardePinnacle.Level = 78
@@ -103,6 +168,12 @@ Solocraft.TrialOfTheChampion.Level = 80
 Solocraft.PitOfSaron.Level = 78
 Solocraft.HallsOfReflection.Level = 78
 Solocraft.TheRubySanctum.Level = 80
+
+
+###################################################################################################
+# Instance level requirements — Cataclysm
+###################################################################################################
+
 Solocraft.ShadowfangKeep.Level = 85
 Solocraft.DeadMines.Level = 85
 Solocraft.BlackrockCaverns.Level = 85
@@ -124,6 +195,12 @@ Solocraft.HourOfTwilight.Level = 85
 Solocraft.Zul'gurub.Level = 85
 Solocraft.ZulAman.Level = 85
 Solocraft.Nexus.Level = 85
+
+
+###################################################################################################
+# Instance level requirements — Mists of Pandaria
+###################################################################################################
+
 Solocraft.ShadoPanMonastery.Level = 90
 Solocraft.Scholomance.Level = 90
 Solocraft.ScarletMonastery.Level = 90
@@ -138,6 +215,12 @@ Solocraft.GateOfTheSettingSun.Level = 90
 Solocraft.SiegeOfNiuzaoTemple.Level = 90
 Solocraft.TempleOfTheJadeSerpent.Level = 90
 Solocraft.StormstoutBrewery.Level = 90
+
+
+###################################################################################################
+# Instance weights — Classic
+###################################################################################################
+
 Solocraft.Stockades = 5.0
 Solocraft.WailingCaverns = 5.0
 Solocraft.RazorfenKraul = 5.0
@@ -158,6 +241,12 @@ Solocraft.DireMaul = 5.0
 Solocraft.BlackwingLair = 40.0
 Solocraft.RuinsOfAhnQiraj = 20.0
 Solocraft.TempleOfAhnQiraj = 40.0
+
+
+###################################################################################################
+# Instance weights — The Burning Crusade
+###################################################################################################
+
 Solocraft.TheBlackMorass = 5.0
 Solocraft.Karazahn = 10.0
 Solocraft.TheBattleForMountHyjal = 25.0
@@ -182,6 +271,12 @@ Solocraft.BlackTemple = 25.0
 Solocraft.GruulsLair = 25.0
 Solocraft.SunwellPlateau = 25.0
 Solocraft.MagistersTerrace = 5.0
+
+
+###################################################################################################
+# Instance weights — Wrath of the Lich King
+###################################################################################################
+
 Solocraft.Naxxramas = 10.0
 Solocraft.UtgardeKeep = 5.0
 Solocraft.UtgardePinnacle = 5.0
@@ -204,6 +299,12 @@ Solocraft.TrialOfTheChampion = 5.0
 Solocraft.PitOfSaron = 5.0
 Solocraft.HallsOfReflection = 5.0
 Solocraft.TheRubySanctum = 10.0
+
+
+###################################################################################################
+# Instance weights — Cataclysm
+###################################################################################################
+
 Solocraft.ShadowfangKeep = 5.0
 Solocraft.DeadMines = 5.0
 Solocraft.BlackrockCaverns = 5.0
@@ -222,6 +323,12 @@ Solocraft.DragonSoul = 10.0
 Solocraft.Zul'gurub = 5.0
 Solocraft.ZulAman = 5.0
 Solocraft.Nexus = 5.0
+
+
+###################################################################################################
+# Instance weights — Mists of Pandaria
+###################################################################################################
+
 Solocraft.ShadoPanMonastery = 5.0
 Solocraft.Scholomance = 5.0
 Solocraft.ScarletMonastery = 5.0
@@ -236,6 +343,15 @@ Solocraft.GateOfTheSettingSun = 5.0
 Solocraft.SiegeOfNiuzaoTemple = 5.0
 Solocraft.TempleOfTheJadeSerpent = 5.0
 Solocraft.StormstoutBrewery = 5.0
+
+
+###################################################################################################
+# Heroic / 25-player weights — The Burning Crusade
+#
+# H retains upstream semantics:
+# heroic dungeon OR 25-player raid.
+###################################################################################################
+
 Solocraft.TheBlackMorassH = 5.0
 Solocraft.TheShatteredHallsH = 5.0
 Solocraft.TheBloodFurnaceH = 5.0
@@ -252,15 +368,21 @@ Solocraft.ManaTombsH = 5.0
 Solocraft.AuchenaiCryptsH = 5.0
 Solocraft.OldHillsbradFoothillsH = 5.0
 Solocraft.MagistersTerraceH = 5.0
+
+
+###################################################################################################
+# Heroic / 25-player weights — Wrath of the Lich King
+###################################################################################################
+
 Solocraft.NaxxramasH = 25.0
 Solocraft.UtgardeKeepH = 5.0
 Solocraft.UtgardePinnacleH = 5.0
 Solocraft.OculusH = 5.0
 Solocraft.TheCullingOfStratholmeH = 5.0
 Solocraft.HallsOfStoneH = 5.0
+Solocraft.HallsOfLightingH = 5.0
 Solocraft.DrakTharonKeepH = 5.0
 Solocraft.AzjolNerubH = 5.0
-Solocraft.HallsOfLightingH = 5.0
 Solocraft.UlduarH = 25.0
 Solocraft.GunDrakH = 5.0
 Solocraft.VioletHoldH = 5.0
@@ -274,6 +396,12 @@ Solocraft.TrialOfTheChampionH = 5.0
 Solocraft.PitOfSaronH = 5.0
 Solocraft.HallsOfReflectionH = 5.0
 Solocraft.TheRubySanctumH = 25.0
+
+
+###################################################################################################
+# Heroic / 25-player weights — Cataclysm
+###################################################################################################
+
 Solocraft.ShadowfangKeepH = 5.0
 Solocraft.DeadMinesH = 5.0
 Solocraft.BlackrockCavernsH = 5.0
@@ -295,6 +423,12 @@ Solocraft.HourOfTwilightH = 5.0
 Solocraft.Zul'gurubH = 5.0
 Solocraft.ZulAmanH = 5.0
 Solocraft.NexusH = 5.0
+
+
+###################################################################################################
+# Heroic / 25-player weights — Mists of Pandaria
+###################################################################################################
+
 Solocraft.ShadoPanMonasteryH = 5.0
 Solocraft.ScholomanceH = 5.0
 Solocraft.ScarletMonasteryH = 5.0

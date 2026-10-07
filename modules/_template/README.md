@@ -38,6 +38,12 @@ Remove this section if the module does not contain SQL.
 
 ## Configuration
 
+The example loads `example.conf.dist` followed by `example.conf` beside the active
+`worldserver.conf`, at startup and on `.reload config`, through
+`_common/ModuleConfig.h`. Copy `modules/_common` alongside the module when
+installing it separately. Rename the `ModuleConfig::Load("example")` argument to
+match your config filename when creating a module from this template.
+
 Document configuration options and their defaults.
 
 Remove this section if the module does not provide configuration.

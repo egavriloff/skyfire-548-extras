@@ -10,6 +10,7 @@
 #include "ScriptMgr.h"
 #include "Util.h"
 #include "World.h"
+#include "_common/ModuleConfig.h"
 #include <sstream>
 
 namespace {
@@ -63,12 +64,11 @@ uint32 RandomRange(uint32 minimum, uint32 maximum) {
 }
 
 void LoadConfig() {
-  std::string filename = sConfigMgr->GetFilename();
-  size_t separator = filename.find_last_of("/\\");
-  std::string directory = separator == std::string::npos ? "" : filename.substr(0, separator + 1);
   // Load shipped defaults before user overrides, also on .ahbot reload.
-  sConfigMgr->LoadMore((directory + "auctionbot.conf.dist").c_str());
-  sConfigMgr->LoadMore((directory + "auctionbot.conf").c_str());
+  ModuleConfig::LoadResult result = ModuleConfig::Load("auctionbot");
+  SF_LOG_INFO("server.loading", "AuctionBot: config dist='%s' [%s], user='%s' [%s]", result.DistPath.c_str(),
+              result.DistLoaded ? "loaded" : "not found", result.UserPath.c_str(),
+              result.UserLoaded ? "loaded" : "not found");
   intervalMs = uint32(std::max(1, std::min(3600, sConfigMgr->GetIntDefault("AuctionHouseBot.Update.Interval", 20)))) *
                IN_MILLISECONDS;
 }

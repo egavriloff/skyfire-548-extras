@@ -160,13 +160,13 @@ jobs:
             [ -d "$module" ] || continue
 
             name="$(basename "$module")"
-            [ "$name" = "_template" ] && continue
+            [[ "$name" == _* ]] && continue
 
             echo "Packaging $name"
 
             (
               cd modules
-              zip -r "../dist/${name}-${VERSION}.zip" "$name"
+              zip -r "../dist/${name}-${VERSION}.zip" "$name" _common
             )
           done
 

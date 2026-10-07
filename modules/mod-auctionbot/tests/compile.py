@@ -29,6 +29,7 @@ vcvars = Path(vs) / 'VC/Auxiliary/Build/vcvars64.bat'
 output = module / '.validation'
 output.mkdir(exist_ok=True)
 arguments = ['/nologo', '/c', '/EHsc', '/MD', '/std:c++17', '/utf-8', '/W3', '/bigobj', '/DNOMINMAX']
+arguments.append('/I"' + str(module.parent) + '"')
 for value in setting('PreprocessorDefinitions').split(';'):
     if value and not value.startswith('%') and '$(' not in value:
         arguments.append('/D"' + value.replace('"', '\\"') + '"')
@@ -39,9 +40,16 @@ arguments.append('/I"' + str(module / 'src') + '"')
 test_arguments = [a for a in arguments if a != '/c']
 test_arguments += ['/UNDEBUG', '/Fe:item_properties_test.exe', '"' + str(module / 'tests/item_properties_test.cpp') + '"']
 (output / 'item_properties_test.rsp').write_text('\n'.join(test_arguments), encoding='utf-8')
+config_directory = next(Path(value) for value in setting('AdditionalIncludeDirectories').split(';')
+                        if Path(value).name == 'Configuration')
+config_arguments = [a for a in arguments if a != '/c']
+config_arguments += ['/Fe:module_config_test.exe',
+                     '"' + str(module.parent / '_common/tests/module_config_test.cpp') + '"',
+                     '"' + str(config_directory / 'Config.cpp') + '"']
+(output / 'module_config_test.rsp').write_text('\n'.join(config_arguments), encoding='utf-8')
 arguments.extend('"' + str(p) + '"' for p in sorted((module / 'src').glob('*.cpp')))
 (output / 'compile.rsp').write_text('\n'.join(arguments), encoding='utf-8')
-(output / 'compile.cmd').write_text('@echo off\ncall "' + str(vcvars) + '" >nul\nif errorlevel 1 exit /b %errorlevel%\ncl.exe @compile.rsp\nif errorlevel 1 exit /b %errorlevel%\ncl.exe /nologo /EHsc /MD /std:c++17 /I"../src" "../tests/policy_test.cpp" /Fe:policy_test.exe\nif errorlevel 1 exit /b %errorlevel%\npolicy_test.exe\nif errorlevel 1 exit /b %errorlevel%\ncl.exe @item_properties_test.rsp\nif errorlevel 1 exit /b %errorlevel%\nitem_properties_test.exe\nexit /b %errorlevel%\n', encoding='utf-8')
+(output / 'compile.cmd').write_text('@echo off\ncall "' + str(vcvars) + '" >nul\nif errorlevel 1 exit /b %errorlevel%\ncl.exe @compile.rsp\nif errorlevel 1 exit /b %errorlevel%\ncl.exe /nologo /EHsc /MD /std:c++17 /I"../src" "../tests/policy_test.cpp" /Fe:policy_test.exe\nif errorlevel 1 exit /b %errorlevel%\npolicy_test.exe\nif errorlevel 1 exit /b %errorlevel%\ncl.exe @item_properties_test.rsp\nif errorlevel 1 exit /b %errorlevel%\nitem_properties_test.exe\nif errorlevel 1 exit /b %errorlevel%\ncl.exe @module_config_test.rsp\nif errorlevel 1 exit /b %errorlevel%\nmodule_config_test.exe\nexit /b %errorlevel%\n', encoding='utf-8')
 result = subprocess.run(['cmd.exe', '/d', '/c', 'compile.cmd'], cwd=output, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 log = result.stdout.decode('utf-8', errors='replace')
 (output / 'compile.log').write_text(log, encoding='utf-8')

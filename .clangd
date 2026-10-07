@@ -1,6 +1,7 @@
 CompileFlags:
   Add:
     - -std=c++23
+    - -Imodules
 
     # Core / scripting
     - -I.skyfire/SkyFire_548/src/server/game/Scripting

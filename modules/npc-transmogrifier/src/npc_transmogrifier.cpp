@@ -20,6 +20,7 @@
 #include "ScriptMgr.h"
 #include "ScriptedGossip.h"
 #include "WorldSession.h"
+#include "_common/ModuleConfig.h"
 
 #include <algorithm>
 #include <set>
@@ -44,7 +45,8 @@ enum GossipSender {
 };
 
 static uint8 const HARD_MAX_SETS = 10;
-static uint32 const MAX_SOURCE_OPTIONS = 64;
+// Reserve the final two gossip entries for removal and Back.
+static uint32 const MAX_SOURCE_OPTIONS = GOSSIP_MAX_MENU_ITEMS - 2;
 
 struct TransmogConfig {
     bool EnableSets;
@@ -145,25 +147,13 @@ struct TransmogConfig {
 
 static TransmogConfig g_TransmogConfig;
 
-static std::string GetSiblingConfigPath(char const* filename) {
-  std::string mainConfig = sConfigMgr->GetFilename();
-  std::string::size_type pos = mainConfig.find_last_of("/\\");
-  if (pos == std::string::npos)
-    return filename;
-
-  return mainConfig.substr(0, pos + 1) + filename;
-}
-
 static void LoadModuleConfig() {
-  std::string dist = GetSiblingConfigPath("transmogrification.conf.dist");
-  std::string user = GetSiblingConfigPath("transmogrification.conf");
-
-  bool distLoaded = sConfigMgr->LoadMore(dist.c_str());
-  bool userLoaded = sConfigMgr->LoadMore(user.c_str());
+  ModuleConfig::LoadResult result = ModuleConfig::Load("transmogrification");
   g_TransmogConfig.Load();
 
-  SF_LOG_INFO("server.loading", "Transmogrifier: config dist='%s' [%s], user='%s' [%s]", dist.c_str(),
-              distLoaded ? "loaded" : "not found", user.c_str(), userLoaded ? "loaded" : "not found");
+  SF_LOG_INFO("server.loading", "Transmogrifier: config dist='%s' [%s], user='%s' [%s]", result.DistPath.c_str(),
+              result.DistLoaded ? "loaded" : "not found", result.UserPath.c_str(),
+              result.UserLoaded ? "loaded" : "not found");
 
   SF_LOG_INFO("server.loading",
               "Transmogrifier: Sets=%u MaxSets=%u MixedArmor=%u MixedWeapon=%u "
@@ -817,7 +807,7 @@ class npc_transmogrifier: public CreatureScript {
 
       if (target) {
         uint32 currentEntry = GetTransmogEntry(target);
-        uint32 price = target->GetSpecialPrice();
+        uint32 price = GetTransmogCost(target);
 
         for (uint8 i = INVENTORY_SLOT_ITEM_START; i < INVENTORY_SLOT_ITEM_END && shown < MAX_SOURCE_OPTIONS; ++i) {
           Item* source = player->GetItemByPos(INVENTORY_SLOT_BAG_0, i);

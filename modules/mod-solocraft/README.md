@@ -8,9 +8,9 @@ WIP: the Docker modules build, metadata, formatting and module-local cppcheck pa
 
 ## Installation
 
-1. Keep this directory at `modules/mod-solocraft` in this repository, or copy it into the target SkyFire checkout's `modules/` directory. The existing SkyFire module CMake integration discovers its source and calls `Addmod_solocraftScripts()`.
+1. Keep this directory at `modules/mod-solocraft` in this repository, or copy it together with `modules/_common` into the target SkyFire checkout's `modules/` directory. The existing SkyFire module CMake integration discovers its source and calls `Addmod_solocraftScripts()`.
 2. Apply `sql/world/solocraft_world.sql` to the **world** database. It installs SkyFire localized strings 30000–30006; check those IDs for existing custom strings before installation.
-3. Merge `conf/solocraft.conf.dist` into `worldserver.conf`, then set `Solocraft.Enable = 1`. SkyFire does not automatically load separate module config files. The default is disabled.
+3. Place `conf/solocraft.conf.dist` beside the `worldserver.conf` used by the server, copy it to `solocraft.conf`, then set `Solocraft.Enable = 1` in that file. The module loads shipped defaults followed by `solocraft.conf` at startup and on `.reload config`; no merge into `worldserver.conf` is required. The default is disabled. On Windows CMake stages the `.conf.dist` beside the binary; move it if your main config is elsewhere.
 4. From this repository run `./build.sh modules` for compile validation, then `./build.sh build` to build the server. Windows: `build modules` and `build build`. Restart worldserver to load the module.
 
 No auth or character SQL is needed. Existing installations of the earlier WIP port can leave `custom_solocraft_character_stats` unused; the new code neither reads nor writes it. Upstream's tinyint GUID table and asynchronous SQL are unsuitable for transient state. If upgrading from a version that persisted an XP lock, review the affected characters' XP settings; this module preserves players' own XP locks and cannot infer which old locks were module-owned.

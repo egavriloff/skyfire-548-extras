@@ -24,6 +24,7 @@
 #include "Map.h"
 #include "Player.h"
 #include "ScriptMgr.h"
+#include "_common/ModuleConfig.h"
 
 #include <algorithm>
 #include <cmath>
@@ -400,7 +401,11 @@ class SoloCraftWorldScript: public WorldScript {
 
     void OnConfigLoad(bool /*reload*/) override {
       std::lock_guard<std::mutex> lock(SoloCraftMutex);
+      ModuleConfig::LoadResult result = ModuleConfig::Load("solocraft");
       GetSoloCraftConfig().Load();
+      SF_LOG_INFO("server.loading", "SoloCraft: config dist='%s' [%s], user='%s' [%s]", result.DistPath.c_str(),
+                  result.DistLoaded ? "loaded" : "not found", result.UserPath.c_str(),
+                  result.UserLoaded ? "loaded" : "not found");
     }
 };
 
