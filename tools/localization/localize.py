@@ -1715,6 +1715,17 @@ def identity_ok(conn: sqlite3.Connection, kind: str, entity: str, sources: tuple
     return (True, "identity verified") if seen else (False, "no upstream base identity")
 
 
+def translation_comparison_text(value: str, locale: str) -> str:
+    """Compare spacing only; retain original values for provenance and export."""
+    if locale != 'ruRU':
+        return value
+    protected = re.compile(r'(\$g[^;]*;|\|\d[^()]*\([^)]*\)|\$[A-Za-z]|\|c[0-9A-Fa-f]{8}|\|r)')
+    parts = protected.split(value)
+    return ''.join(part if i % 2 else re.sub(r'[^\S\r\n\v\f\u0085\u2028\u2029]+', ' ',
+                                           part.replace('\r\n', '\n'))
+                   for i, part in enumerate(parts)).strip()
+
+
 def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str, field: str, *, indexed_provenance: bool = False,
                   identity_sources: tuple[str, ...] | None = None, invalid_evidence: list | None = None) -> tuple[str, dict[str, object]]:
     if locale not in LOCALES:
@@ -1762,7 +1773,8 @@ def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
     invalid = [value for value in (invalid_locale_values(conn, kind, entity, locale) if invalid_evidence is None else invalid_evidence) if value['field'] == field]
     if invalid:
         details['invalid_values'] = invalid
-    if len(set(upstream.values())) > 1:
+    compared = {source: translation_comparison_text(value, locale) for source, value in upstream.items()}
+    if len(set(compared.values())) > 1:
         return "CONFLICT", details
     if not upstream:
         if invalid:
@@ -1770,7 +1782,7 @@ def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         return ("MISSING" if not target_val else "TARGET_IDENTICAL"), details
     value = next(iter(upstream.values()))
     if target_val not in (None, ""):
-        return ("TARGET_IDENTICAL" if str(target_val) == value else "CONFLICT"), details
+        return ("TARGET_IDENTICAL" if translation_comparison_text(str(target_val), locale) == translation_comparison_text(value, locale) else "CONFLICT"), details
     if len(upstream) >= 2:
         return "MATCH", details
     return "SOURCE_ONLY", details

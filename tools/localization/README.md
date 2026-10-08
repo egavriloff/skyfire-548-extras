@@ -90,7 +90,13 @@ Creature identity uses English name and strict type/unit_class/family/rank; base
 subname is evidence only. Quest English title/details/objectives identity permits
 NULL/empty and whitespace representation differences. Placeholder spelling/case
 and gender/morphology expressions remain exact, as do words, names, directions and
-structural method/type/minlevel/zoneorsort. Localization values are not normalized.
+structural method/type/minlevel/zoneorsort. Ordinary ruRU translation comparison
+ignores outer whitespace, repeated horizontal whitespace and CRLF/LF differences.
+Internal paragraph boundaries, placeholders and morphology expressions remain
+exact. Punctuation, case, e/yo and transliteration are never normalized. Export
+retains the original value from the first source in stable source-ID order and
+all provenance; existing target translations are preserved. Other locales and
+the exact opt-in exception proofs retain their existing comparison behavior.
 Suspected ruRU mojibake values are excluded, never reverse-decoded. The index keeps
 their original value and provenance in invalid_values and emits warnings. Valid
 donors may still supply a translation; invalid-only evidence is UNSUPPORTED.
