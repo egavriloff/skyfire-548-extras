@@ -67,7 +67,34 @@ candidate selection remains for item/gameobject/gossip. Counters describe indexe
 targets, not live DB state. Source revisions require independent Git metadata;
 bulk output does not depend on current Git HEAD.
 
+## Reference locale schemas
+
+Reference locale adapters accept row-based tables and compatible wide locales_item,
+locales_gameobject, locales_creature and locales_quest tables. The explicit loc1..loc11
+mapping is koKR, frFR, deDE, zhCN, zhTW, esES, esMX, ruRU, itIT, ptBR, ptPT;
+enUS remains base data. Schema validation rejects unknown columns, invalid keys,
+unsupported locale slots and non-text values with warnings. Partial supported
+locale columns are allowed; NULL/empty values do not create translations.
+locales_quest_objective uses id/locale/description with numeric or named locales.
+Reference-only locales_gossip_menu_option maps menu_id/id and option_text_locN /
+box_text_locN; differing female variants skip only the affected locale and are
+warned. Legacy wide data does not overwrite/delete canonical row-based translations
+when both forms coexist in a reference. Wide-only references supply translations
+normally. Target gossip
+writes still use gossip_menu_option_locale. File precedence and identity policies
+remain unchanged. Provenance preserves the actual input table.
+
 ## Existing opt-in exceptions
+
+Creature identity uses English name and strict type/unit_class/family/rank; base
+subname is evidence only. Quest English title/details/objectives identity permits
+NULL/empty and whitespace representation differences. Placeholder spelling/case
+and gender/morphology expressions remain exact, as do words, names, directions and
+structural method/type/minlevel/zoneorsort. Localization values are not normalized.
+Suspected ruRU mojibake values are excluded, never reverse-decoded. The index keeps
+their original value and provenance in invalid_values and emits warnings. Valid
+donors may still supply a translation; invalid-only evidence is UNSUPPORTED.
+Bulk reports retain invalid evidence even for otherwise exportable entities.
 
 --allow-single-identity enables item SAFE_SINGLE_IDENTITY only with exactly two
 references, exactly one confirmed name, agreed localization, matching mandatory
