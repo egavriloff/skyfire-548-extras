@@ -1,124 +1,61 @@
 # Repository Structure and Conventions
 
-## Layout
+This is the canonical definition of repository locations. Module workflow lives
+in `porting.md`; localization workflow lives in `localization.md`.
 
 ```text
-skyfire-548-modules/
-├── modules/                    # committed module ports
-├── .agents/                    # agent instructions
-├── .ci/                        # verification/build/review tooling
-├── .github/workflows/          # GitHub Actions
-├── .skyfire/
-│   └── SkyFire_548/            # local target-core checkout, gitignored
-├── .porting/
-│   └── sources/                # local upstream porting inputs, gitignored
-├── build.sh                    # macOS/Linux Docker entry point
-├── build.cmd                   # Windows Docker entry point
-└── compile_commands.json       # generated Docker compilation DB, gitignored
+/
+├── externals/                 # ignored local inputs; never committed
+│   ├── core/
+│   │   ├── repo/              # authoritative ProjectSkyFire 5.4.8 checkout
+│   │   └── db/                # optional target World DB SQL dumps
+│   └── references/
+│       └── <source-id>/
+│           ├── repo/          # optional reference checkout
+│           ├── db/            # optional reference SQL dumps
+│           └── source.json    # optional local evidence roles
+├── modules/                   # committed installable modules
+├── tools/localization/        # committed reusable offline tooling
+├── localizations/<locale>/    # committed reviewed localization SQL
+├── .tmp/localization/         # ignored machine-local development state
+│   ├── index/
+│   ├── cache/
+│   ├── review/
+│   ├── reports/
+│   ├── validation/
+│   ├── smoke-test/
+│   └── dev/
+├── .agents/                   # canonical agent guidance
+├── .ci/                       # verification/build/review tooling
+└── .github/workflows/         # GitHub Actions
 ```
 
-Both `.skyfire/` and `.porting/` are local working data and are already ignored
-by Git. Do not add their contents to commits.
+Reference IDs are arbitrary directory names, not vendor or trust semantics.
+repo/db are independently optional; at least one must exist. Treat external
+repositories and dumps as read-only. Do not create alternative input/cache
+workspaces. Keep reusable scripts in tools, localization audit scripts in
+.tmp/localization/dev,
+and only explicitly reviewed, promoted SQL in localizations.
 
-## Canonical Local Build Environment
+## Build
 
-The canonical local build runs in Docker.
+The canonical local C++ build runs in Docker, with the repository mounted at
+`/workspace/repo` and the target checkout at `/workspace/repo/externals/core/repo`.
+Use `./build.sh <action>` on macOS/Linux or `build.cmd <action>` on Windows.
+Actions: configure, modules, worldserver, build, status, clean, shell. The default
+is build; use modules for iterative compile validation. The full build includes
+worldserver. Root launchers are preferred over platform-specific Make shortcuts.
 
-The host repository is mounted in the container at:
+configure generates ignored compile_commands.json for the Linux Docker environment.
+Do not rewrite its paths to host-specific paths.
 
-```text
-/workspace/repo
-```
+## Git and documentation
 
-Inside the container:
+Never commit automatically. When requested, use Conventional Commits:
+`<type>(<scope>): <description>`. Types: feat, fix, docs, style, refactor, build,
+ci, test, chore. Scope is the module slug or repo for repository infrastructure.
+Preserve user changes outside the requested scope.
 
-```text
-/workspace/repo/modules
-/workspace/repo/.skyfire/SkyFire_548
-```
-
-The Docker image provides the compiler and dependencies, including GCC 14,
-Boost and OpenSSL.
-
-### macOS / Linux
-
-```sh
-./build.sh <action>
-```
-
-### Windows
-
-```bat
-build <action>
-```
-
-Supported actions are defined by `.ci/module-build/build-inner.sh`:
-
-```text
-configure
-modules
-worldserver
-build
-status
-clean
-shell
-```
-
-With no action, the launcher uses `build`.
-
-Use `modules` for the normal compile-validation loop while working on module
-ports:
-
-```sh
-./build.sh modules
-```
-
-The full `build` action builds the modules target and `worldserver`.
-
-## Compilation Database
-
-`configure` generates:
-
-```text
-compile_commands.json
-```
-
-This database describes the Linux Docker environment. Paths such as
-`/workspace/repo/...` and `/usr/bin/g++-14` are intentional.
-
-Do not rewrite it to host-specific macOS or Windows paths as part of a module
-change.
-
-## Makefile
-
-The repository may expose convenience Make targets, but agents should prefer
-the cross-platform root launchers (`build.sh` / `build.cmd`) when documenting
-or automating the canonical build flow.
-
-## Commit Messages
-
-The commit hook requires Conventional Commit messages in this exact shape:
-
-```text
-<type>(<scope>): <description>
-```
-
-Allowed types:
-
-```text
-feat fix docs style refactor build ci test chore
-```
-
-Use the module slug as the scope for module-specific changes, for example:
-
-```text
-fix(mod-solocraft): adapt string lookup to SkyFire API
-```
-
-Use `repo` for repository-wide changes, for example:
-
-```text
-chore(repo): update agent porting instructions
-```
-
-Do not create commits unless the user asks for them.
+Documentation created or rewritten here must be English-only. Communication
+language follows the user. Module-specific attribution stays with its module.
+Reusable examples use neutral reference IDs such as source-a and source-b.

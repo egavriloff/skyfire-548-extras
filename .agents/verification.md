@@ -20,7 +20,7 @@ make clangd-verify
 ```
 
 for validating the include directories configured in `.clangd` against the
-local `.skyfire/SkyFire_548` checkout.
+local `externals/core/repo` checkout.
 
 Do not confuse static verification with a real C++ build.
 

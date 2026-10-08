@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Офлайн-индекс, сравнение и безопасная подготовка SQL локализаций для SkyFire 5.4.8."""
+"""Offline indexing, comparison and safe localization SQL for SkyFire 5.4.8."""
 
 from __future__ import annotations
 
@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import Iterator, TextIO
 
 ROOT = Path(__file__).resolve().parents[2]
-PORTING = ROOT / ".porting" / "localization"
-INDEX = PORTING / "localization-index.sqlite3"
+sys.dont_write_bytecode = True
+import publishing
+WORKSPACE = ROOT / ".tmp" / "localization"
+INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
 LOCALES = {
     "enUS": 0, "koKR": 1, "frFR": 2, "deDE": 3, "zhCN": 4, "zhTW": 5,
     "esES": 6, "esMX": 7, "ruRU": 8, "itIT": 9, "ptBR": 10, "ptPT": 11,
@@ -52,6 +54,51 @@ SPECS = {
         "wide_fields": {},
     },
 }
+
+# Fields verified against ObjectMgr loaders and GossipDef packets in SkyFire 5.4.8.
+QUEST_TEXT = tuple('title details objectives offerrewardtext requestitemstext endtext completedtext questgivertextwindow questgivertargetname questturntextwindow questturntargetname'.split())
+QUEST_ALIASES = dict(zip('logtitle questdescription logdescription areadescription questcompletionlog portraitgivertext portraitgivername portraitturnintext portraitturninname'.split(),
+                         'title details objectives endtext completedtext questgivertextwindow questgivertargetname questturntextwindow questturntargetname'.split()))
+CREATURE_STRUCT = ('type', 'unit_class', 'family', 'rank')
+QUEST_STRUCT_ALIASES = {'questtype': 'method', 'questsortid': 'zoneorsort', 'questinfoid': 'type'}
+for kind, entity, target, idcol, fields in (
+        ('creature', 'creature_template', 'locales_creature', 'entry', ('name', 'subname')),
+        ('quest', 'quest_template', 'locales_quest', 'id', QUEST_TEXT)):
+    SPECS[kind] = {'source_table': entity + '_locale', 'target_table': target, 'target_entity': entity,
+                   'entity_fields': (idcol,), 'source_id': idcol, 'target_id': idcol, 'source_locale': 'locale',
+                   'text_fields': {f: f for f in fields}, 'source_target_fields': {f: f for f in fields},
+                   'wide_fields': {f: f + '_loc{n}' for f in fields}}
+
+# Internal quest parts; these are not separate CLI entity types.
+QUEST_PARTS = {
+    'quest_offer_reward': ('quest_offer_reward_locale', 'offerrewardtext', 'rewardtext'),
+    'quest_request_items': ('quest_request_items_locale', 'requestitemstext', 'completiontext'),
+    'quest_objective': ('quest_objective_locale', 'description', 'description'),
+}
+INTERNAL_SPECS = {kind: {'source_table': table, 'target_table': 'locales_quest_objective' if kind == 'quest_objective' else table,
+                       'target_entity': kind, 'entity_fields': ('id',), 'source_id': 'id', 'target_id': 'id',
+                       'source_locale': 'locale', 'text_fields': {field: field}, 'source_target_fields': {field: col}, 'wide_fields': {}}
+                  for kind, (table, field, col) in QUEST_PARTS.items()}
+ALL_SPECS = {**SPECS, **INTERNAL_SPECS}
+
+
+def locale_table_kind(table: str) -> str | None:
+    if table == 'quest_objectives_locale':
+        return 'quest_objective'
+    return next((k for k, s in ALL_SPECS.items() if table in (s['source_table'], s['target_table'])), None)
+
+
+def canonical_row(kind: str, row: dict) -> dict:
+    row = dict(row)
+    if kind == 'creature' and 'title' in row:
+        row['subname'] = row['title']
+    if kind == 'creature' and 'npc_rank' in row:
+        row['rank'] = row['npc_rank']
+    if kind == 'quest':
+        for alias, field in {**QUEST_ALIASES, **QUEST_STRUCT_ALIASES}.items():
+            if alias in row:
+                row[field] = row[alias]
+    return row
 
 GOSSIP_FIELDS = {
     "optionbroadcasttextid": ("optionbroadcasttextid", "option_broadcast_text_id"),
@@ -318,14 +365,64 @@ class Tokens:
                 depth -= 1
 
 
+def source_definitions() -> dict[str, dict]:
+    """Discover independent repo/db inputs; optional roles only gate fixed aliases."""
+    result = {}
+    core = ROOT / 'externals/core'
+    if any((core / part).is_dir() for part in ('repo', 'db')):
+        result['target'] = {'path': core, 'role': 'target', 'alias_role': None}
+    references = ROOT / 'externals/references'
+    if references.is_dir():
+        for directory in sorted(references.iterdir(), key=lambda p: p.name):
+            if not directory.is_dir() or directory.is_symlink() or directory.name.casefold() in SKIP_DIRS or directory.name.startswith('.'):
+                continue
+            source = directory.name
+            if source.casefold() == 'target' or any(ord(c) < 32 for c in source):
+                raise RuntimeError(f'Invalid or reserved reference source ID: {source!r}')
+            if not any((directory / part).is_dir() for part in ('repo', 'db')):
+                continue
+            config_file = directory / 'source.json'
+            config = json.loads(config_file.read_text(encoding='utf-8')) if config_file.exists() else {}
+            if not isinstance(config, dict) or set(config) - {'alias_role'} or config.get('alias_role') not in (None, 'origin', 'corroborator'):
+                raise RuntimeError(f'Invalid optional evidence role configuration: {config_file}')
+            result[source] = {'path': directory, 'role': 'reference', 'alias_role': config.get('alias_role')}
+    roles = [value['alias_role'] for value in result.values() if value['alias_role']]
+    if len(roles) != len(set(roles)):
+        raise RuntimeError('Duplicate alias evidence roles; require at most one origin and one corroborator')
+    return result
+
+
+def register_sources(conn: sqlite3.Connection) -> None:
+    for source, definition in source_definitions().items():
+        conn.execute('INSERT OR REPLACE INTO sources VALUES(?,?,?)', (source, definition['role'], definition['alias_role']))
+
+
+def reference_sources(conn: sqlite3.Connection) -> tuple[str, ...]:
+    registered = conn.execute("SELECT source FROM sources WHERE role='reference' ORDER BY source").fetchall()
+    if registered:
+        return tuple(row[0] for row in registered)
+    rows = conn.execute("SELECT DISTINCT source FROM entities WHERE source<>'target' UNION SELECT DISTINCT source FROM records WHERE source<>'target' UNION SELECT DISTINCT source FROM files WHERE source<>'target' ORDER BY source")
+    return tuple(row[0] for row in rows)
+
+
+def alias_reference_pair(conn: sqlite3.Connection) -> tuple[str, str] | None:
+    refs = reference_sources(conn)
+    rows = [(source, role) for source, role in conn.execute(
+        "SELECT source,alias_role FROM sources WHERE role='reference' AND alias_role IS NOT NULL") if source in refs]
+    roles = {role: source for source, role in rows}
+    if len(rows) != 2 or set(roles) != {'origin', 'corroborator'}:
+        return None
+    return roles['origin'], roles['corroborator']
+
+
 def active_files() -> list[tuple[str, Path, str | None]]:
     result = []
     def walk_error(error: OSError) -> None:
         raise RuntimeError(f"Не удалось прочитать каталог источников: {error}") from error
 
-    for source in ("alexkulya", "loap", "skyfire"):
+    for source, definition in source_definitions().items():
         for location in ("repo", "db"):
-            base = ROOT / ".porting" / "sources" / source / location
+            base = definition['path'] / location
             if not base.exists():
                 continue
             for directory, dirs, files in os.walk(base, onerror=walk_error, followlinks=False):
@@ -362,7 +459,7 @@ def active_files() -> list[tuple[str, Path, str | None]]:
 
 def source_revision(source: str) -> str | None:
     # Do not report the parent workspace SHA as an upstream source revision.
-    source_repo = ROOT / ".porting" / "sources" / source / "repo"
+    source_repo = ROOT / 'externals' / ('core' if source == 'target' else 'references/' + source) / 'repo'
     if not (source_repo / ".git").exists():
         return None
     try:
@@ -406,7 +503,11 @@ def db_connect(path: Path = INDEX) -> sqlite3.Connection:
         source TEXT NOT NULL, file TEXT NOT NULL, message TEXT NOT NULL)""")
     conn.execute("CREATE TABLE IF NOT EXISTS gossip_boxes(source TEXT,entity TEXT,boxtext TEXT,file TEXT,PRIMARY KEY(source,entity))")
     conn.execute("CREATE TABLE IF NOT EXISTS gossip_aux(source TEXT,entity TEXT,table_name TEXT,fields TEXT,file TEXT,PRIMARY KEY(source,entity,table_name))")
+    conn.execute('CREATE TABLE IF NOT EXISTS sources(source TEXT PRIMARY KEY,role TEXT NOT NULL,alias_role TEXT)')
+    conn.execute('CREATE TABLE IF NOT EXISTS record_origins(source TEXT,kind TEXT,entity TEXT,locale TEXT,table_name TEXT,PRIMARY KEY(source,kind,entity,locale))')
     conn.execute("CREATE INDEX IF NOT EXISTS entities_name_idx ON entities(source,kind,json_extract(fields,'$.name'))")
+    conn.execute("CREATE INDEX IF NOT EXISTS quest_objectives_parent_idx ON entities(kind,source,json_extract(fields,'$.questid'))")
+    conn.execute("CREATE INDEX IF NOT EXISTS quest_objectives_all_parents_idx ON entities(kind,json_extract(fields,'$.questid'))")
     return conn
 
 
@@ -464,6 +565,11 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
         skip_statement(t)
         return
     depth, cols, segment = 1, [], []
+    def is_column(segment):
+        first = segment[0][1].lower()
+        if first == 'index' and len(segment) > 1 and segment[1][1].lower() in ('tinyint', 'smallint', 'mediumint', 'int', 'bigint'):
+            return True  # `index` is a real quest_objective column, not an INDEX definition.
+        return segment[0][0] == 'word' and first not in {'primary', 'unique', 'key', 'index', 'constraint', 'foreign', 'fulltext', 'spatial'}
     while depth:
         x = t.get()
         if x[0] == "eof":
@@ -475,13 +581,13 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
             if depth == 0:
                 if segment:
                     first = segment[0][1].lower()
-                    if segment[0][0] == "word" and first not in {"primary", "unique", "key", "index", "constraint", "foreign", "fulltext", "spatial"}:
+                    if is_column(segment):
                         cols.append(first)
                 break
         if x[0] == "," and depth == 1:
             if segment:
                 first = segment[0][1].lower()
-                if segment[0][0] == "word" and first not in {"primary", "unique", "key", "index", "constraint", "foreign", "fulltext", "spatial"}:
+                if is_column(segment):
                     cols.append(first)
             segment = []
         else:
@@ -545,20 +651,22 @@ def sql_value(expr: list[tuple[str, str]], variables: dict[str, object] | None =
 
 
 def normalized_row(source: str, table: str, cols: list[str], vals: list[object]) -> tuple[str, str, str, dict[str, object]] | None:
-    kind = next((k for k, spec in SPECS.items() if table == spec["source_table"] or table == spec["target_table"]), None)
+    kind = locale_table_kind(table)
     if not kind:
         return None
-    spec = SPECS[kind]
+    spec = ALL_SPECS[kind]
     if not cols or len(cols) != len(vals):
         return None
-    row = {str(c).lower(): v for c, v in zip(cols, vals)}
+    row = canonical_row(kind, {str(c).lower(): v for c, v in zip(cols, vals)})
     # Source row-style localization.
-    if table == spec["source_table"]:
+    if table == spec["source_table"] or table == 'quest_objectives_locale' or kind == 'quest_objective':
         if kind == "gossip_menu_option":
             entity = (row.get("menuid"), row.get("optionid", row.get("optionindex")))
         else:
             entity = row.get(spec["source_id"])
         locale = row.get(spec["source_locale"])
+        if kind == 'quest_objective' and isinstance(locale, int):
+            locale = next((code for code, n in LOCALES.items() if n == locale), None)
         if entity is None or locale not in LOCALES:
             return None
         fields = {key: row.get(col) for key, col in spec["source_target_fields"].items()}
@@ -585,6 +693,16 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
 
 
 def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
+    row = canonical_row(kind, row)
+    if kind == 'creature':
+        return {k: row[k] for k in ('name', 'subname', *CREATURE_STRUCT) if k in row}
+    if kind == 'quest':
+        return {k: row[k] for k in (*QUEST_TEXT, 'minlevel', 'method', 'zoneorsort', 'type') if k in row}
+    if kind == 'quest_objective':
+        return {k: row[k] for k in ('questid', 'type', 'objectid', 'amount', 'flags', 'description', 'index') if k in row}
+    if kind in QUEST_PARTS:
+        field, col = QUEST_PARTS[kind][1:]
+        return {field: row[col]} if col in row else {}
     if kind == "gossip_menu_option":
         fields = {}
         for canonical, aliases in GOSSIP_FIELDS.items():
@@ -599,7 +717,7 @@ def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
 
 
 def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[str, object], file: str, rank: int) -> None:
-    spec = SPECS[kind]
+    spec = ALL_SPECS[kind]
     if kind == "gossip_menu_option":
         ident = (row.get("menuid", row.get("menu_id")), row.get("optionid", row.get("optionindex", row.get("id"))))
     else:
@@ -613,7 +731,7 @@ def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[s
                  (source, kind, json.dumps(ident, ensure_ascii=False), json.dumps(fields, ensure_ascii=False), file, rank))
 
 
-def persist_locale(conn: sqlite3.Connection, source: str, kind: str, entity: str, locale: str, fields: dict[str, object], file: str, rank: int) -> None:
+def persist_locale(conn: sqlite3.Connection, source: str, kind: str, entity: str, locale: str, fields: dict[str, object], file: str, rank: int, table_name: str | None = None) -> None:
     clean = {k: v for k, v in fields.items() if v not in (None, "")}
     if not clean:
         conn.execute("DELETE FROM records WHERE source=? AND kind=? AND entity=? AND locale=? AND rank<=?",
@@ -621,6 +739,8 @@ def persist_locale(conn: sqlite3.Connection, source: str, kind: str, entity: str
         return
     conn.execute("INSERT INTO records VALUES(?,?,?,?,?,?,?) ON CONFLICT(source,kind,entity,locale) DO UPDATE SET fields=excluded.fields,file=excluded.file,rank=excluded.rank WHERE excluded.rank>=records.rank",
                  (source, kind, entity, locale, json.dumps(clean, ensure_ascii=False), file, rank))
+    if table_name:
+        conn.execute('INSERT OR REPLACE INTO record_origins VALUES(?,?,?,?,?)', (source,kind,entity,locale,table_name))
 
 
 def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str], list[str]], conn: sqlite3.Connection, rank: int,
@@ -635,8 +755,14 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     if not table:
         skip_statement(t)
         return
-    locale_tables = {spec["target_table"] if source == "skyfire" else spec["source_table"] for spec in SPECS.values()}
-    entity_tables = {spec["target_entity"] for spec in SPECS.values()} | {"gossip_menu_option_box", "gossip_menu_option_action"}
+    locale_tables = {spec["target_table"] if source == "target" else spec["source_table"] for spec in ALL_SPECS.values()}
+    if source == 'target':
+        locale_tables.difference_update(('quest_offer_reward_locale', 'quest_request_items_locale'))
+    if source != 'target':
+        locale_tables.add('quest_objectives_locale')
+    if source != 'target':
+        locale_tables.discard('locales_quest_objective')
+    entity_tables = {spec["target_entity"] for spec in ALL_SPECS.values()} | {"gossip_menu_option_box", "gossip_menu_option_action"}
     relevant = locale_tables if phase == "locales" else entity_tables
     if table not in relevant:
         t.skip_raw_statement()
@@ -659,6 +785,22 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
         x = t.get()
         if x[0] in (";", "eof"):
             return
+        if x[1].upper() == 'SELECT' and table in ('creature_template', 'quest_template', *QUEST_PARTS, 'creature_template_locale', 'quest_template_locale', 'quest_objective_locale', 'quest_objectives_locale'):
+            tokens = statement_tokens(t)
+            actual_cols = cols or schemas.get((source, table), [])
+            try:
+                marker = next(i for i, token in enumerate(tokens) if token[1].upper() == 'WHERE')
+                values = [sql_value(part, t.variables) for part in split_tokens(tokens[:marker], ',')]
+                guard = ''.join(token[1].lower() for token in tokens[marker:])
+                match = re.fullmatch(r'wherenotexists\(select1fromquest_objectivewhereid=(\d+)\)', guard)
+                row = dict(zip(actual_cols, values))
+                if table != 'quest_objective' or len(actual_cols) != len(values) or not match or row.get('id') != int(match[1]):
+                    raise ValueError('неподдерживаемый INSERT SELECT')
+                if not base_entity(conn, source, 'quest_objective', str(row['id'])):
+                    persist_entity(conn, source, 'quest_objective', row, file, rank)
+            except (ValueError, StopIteration) as exc:
+                parser_warning(conn, source, file, f'INSERT SELECT {table}: {exc}')
+            return
         if x[1].upper() == "VALUES" or (x[1].upper() == "VALUE"):
             break
     if cols is None:
@@ -669,8 +811,8 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     while True:
         x = t.get()
         if x[0] == "(":
-            if phase == "entities" and cols:
-                first_index = next((cols.index(c) for c in ("entry", "menuid", "menu_id") if c in cols), -1)
+            if phase == "entities" and cols and table not in ('creature_template', 'quest_template', *QUEST_PARTS):
+                first_index = next((cols.index(c) for c in ("entry", "menuid", "menu_id", "id") if c in cols), -1)
                 if first_index == 0:
                     # Read the integer entity key before paying to tokenize every non-candidate row.
                     prefix = t.get()
@@ -721,21 +863,21 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                 vals = literal_tuple(t)
             if len(cols) == len(vals):
                 row = {c: v for c, v in zip(cols, vals)}
-                spec_kind = next((k for k, s in SPECS.items() if table == s["source_table"] or table == s["target_table"]), None)
+                spec_kind = locale_table_kind(table)
                 if spec_kind:
-                    if table == SPECS[spec_kind]["target_table"] and spec_kind != "gossip_menu_option":
-                        entity = row.get(SPECS[spec_kind]["target_id"])
+                    if table == ALL_SPECS[spec_kind]["target_table"] and ALL_SPECS[spec_kind]['wide_fields']:
+                        entity = row.get(ALL_SPECS[spec_kind]["target_id"])
                         if entity is not None:
                             for locale, n in LOCALES.items():
                                 if n == 0:
                                     continue
-                                fields = {key: row.get(pattern.format(n=n)) for key, pattern in SPECS[spec_kind]["wide_fields"].items()}
+                                fields = {key: row.get(pattern.format(n=n)) for key, pattern in ALL_SPECS[spec_kind]["wide_fields"].items()}
                                 persist_locale(conn, source, spec_kind, json.dumps(entity), locale, fields, file, rank)
                     else:
                         normalized = normalized_row(source, table, cols, vals)
                         if normalized:
                             kind, entity, locale, fields = normalized
-                            persist_locale(conn, source, kind, entity, locale, fields, file, rank)
+                            persist_locale(conn, source, kind, entity, locale, fields, file, rank, table_name=table)
                 if table in ("gossip_menu_option_box", "gossip_menu_option_action"):
                     menu, option = row.get("menuid"), row.get("optionindex", row.get("optionid"))
                     if isinstance(menu, int) and isinstance(option, int):
@@ -745,7 +887,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         conn.execute("INSERT OR REPLACE INTO gossip_aux VALUES(?,?,?,?,?)",
                                      (source, json.dumps((menu, option)), table, json.dumps(identity_fields("gossip_menu_option", row), ensure_ascii=False), file))
                 # Base entity identity records.
-                base_map = {"item_template": "item", "gameobject_template": "gameobject", "gossip_menu_option": "gossip_menu_option"}
+                base_map = {s['target_entity']: k for k, s in ALL_SPECS.items()}
                 if table in base_map:
                     persist_entity(conn, source, base_map[table], row, file, rank)
                 if conn.total_changes - parse_insert.last_commit >= 20000:
@@ -771,6 +913,8 @@ TARGET_TABLES = {
     "gameobject_template_locale", "locales_gameobject", "gameobject_template",
     "gossip_menu_option_locale", "gossip_menu_option", "gossip_menu_option_box", "gossip_menu_option_action",
 }
+TARGET_TABLES.update(table for spec in ALL_SPECS.values() for table in (spec['source_table'], spec['target_table'], spec['target_entity']))
+TARGET_TABLES.add('quest_objectives_locale')
 
 
 def rank_for(file: str) -> int:
@@ -853,11 +997,15 @@ def split_tokens(tokens: list[tuple[str, str]], separator: str) -> list[list[tup
 
 
 def table_info(table: str, source: str | None = None) -> tuple[str, str] | None:
-    for kind, spec in SPECS.items():
+    if source == 'target' and table in ('quest_offer_reward_locale', 'quest_request_items_locale'):
+        return None  # The SkyFire loader reads these texts only from locales_quest.
+    if table == 'quest_objectives_locale' and source != 'target':
+        return 'quest_objective', 'records'
+    for kind, spec in ALL_SPECS.items():
         if table == spec["target_entity"]:
             return kind, "entities"
         if table in (spec["source_table"], spec["target_table"]):
-            if source and table != (spec["target_table"] if source == "skyfire" else spec["source_table"]):
+            if source and table != (spec["target_table"] if source == "target" else spec["source_table"]):
                 return None
             return kind, "records"
     return None
@@ -865,11 +1013,29 @@ def table_info(table: str, source: str | None = None) -> tuple[str, str] | None:
 
 def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variables: dict[str, object]) -> tuple[str, list[object]]:
     # Deliberately restricted, parameterized subset: equality, IN, BETWEEN, AND.
+    depth = 0
+    for i, token in enumerate(tokens):
+        depth += int(token[0] == '(') - int(token[0] == ')')
+        if token[1].upper() == 'OR' and depth == 0:
+            left, lp = predicate_sql(tokens[:i], kind, storage, variables)
+            right, rp = predicate_sql(tokens[i + 1:], kind, storage, variables)
+            return '(' + left + ' OR ' + right + ')', lp + rp
     pos, fragments, params = 0, [], []
     while pos < len(tokens):
         col = tokens[pos][1].lower()
         if tokens[pos][0] == "(":
-            end = next(i for i in range(pos + 1, len(tokens)) if tokens[i][0] == ")")
+            level, end = 1, pos
+            while level:
+                end += 1
+                level += int(tokens[end][0] == '(') - int(tokens[end][0] == ')')
+            if end == len(tokens) - 1 or tokens[end + 1][1].upper() == 'AND':
+                condition, values = predicate_sql(tokens[pos + 1:end], kind, storage, variables)
+                fragments.append('(' + condition + ')')
+                params.extend(values)
+                pos = end + 1
+                if pos < len(tokens):
+                    pos += 1
+                continue
             columns = [token for token in tokens[pos + 1:end] if token[0] != ","]
             expressions = []
             for column in columns:
@@ -910,7 +1076,7 @@ def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variab
         elif col == "locale" and storage == "records":
             expression = "locale"
         else:
-            table = SPECS[kind]["target_entity"] if storage == "entities" else SPECS[kind]["source_table"]
+            table = ALL_SPECS[kind]["target_entity"] if storage == "entities" else ALL_SPECS[kind]["source_table"]
             mapped = normalized_update_field(kind, table, col)
             if not mapped:
                 raise ValueError(f"неподдерживаемое поле WHERE: {col}")
@@ -919,9 +1085,19 @@ def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variab
             raise ValueError("неполный WHERE")
         op = tokens[pos][1].upper()
         pos += 1
-        if op in ("=", "<>", "!=", "<", ">", "<=", ">="):
+        if op == 'IS':
+            negate = tokens[pos][1].upper() == 'NOT'
+            pos += int(negate)
+            if tokens[pos][1].upper() != 'NULL':
+                raise ValueError('IS поддерживает только NULL/NOT NULL')
+            fragments.append(expression + (' IS NOT NULL' if negate else ' IS NULL'))
+            pos += 1
+        elif op in ("=", "<>", "!=", "<", ">", "<=", ">="):
             fragments.append(expression + op + "?")
-            params.append(sql_value([tokens[pos]], variables))
+            value = sql_value([tokens[pos]], variables)
+            if kind == 'quest_objective' and col == 'locale' and isinstance(value, int):
+                value = next((code for code, n in LOCALES.items() if n == value), value)
+            params.append(value)
             pos += 1
         elif op == "BETWEEN":
             low = sql_value([tokens[pos]], variables)
@@ -1001,7 +1177,24 @@ def parse_delete(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
 
 
 def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, str] | None:
-    spec = SPECS[kind]
+    spec = ALL_SPECS[kind]
+    if kind in ('creature', 'quest', *QUEST_PARTS):
+        if table == spec['target_entity']:
+            mapped = identity_fields(kind, {column: 0})
+            return (next(iter(mapped)), 'entity') if mapped else None
+        if kind in QUEST_PARTS:
+            field, col = QUEST_PARTS[kind][1:]
+            return (field, 'locale') if column == col else None
+        mapped = canonical_row(kind, {column: 0})
+        for field in spec['text_fields']:
+            if field in mapped:
+                return field, 'locale'
+        for field, pattern in spec['wide_fields'].items():
+            match = re.fullmatch(re.escape(pattern.split('{n}')[0]) + r'(\d+)', column)
+            if match:
+                code = next((code for code, n in LOCALES.items() if n == int(match[1])), None)
+                return (field, code) if code else None
+        return None
     if table == spec["target_entity"]:
         aliases = {
             "item": {"name": "name", "description": "description", "class": "class", "subclass": "subclass"},
@@ -1031,10 +1224,11 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
 
 
 def apply_simple_update(conn: sqlite3.Connection, source: str, table: str, assignments: dict[str, object], where: dict[str, object], file: str, rank: int) -> bool:
-    kind = next((k for k, spec in SPECS.items() if table in (spec["target_entity"], spec["source_table"], spec["target_table"])), None)
+    info = table_info(table, source)
+    kind = info[0] if info else None
     if not kind:
         return False
-    spec = SPECS[kind]
+    spec = ALL_SPECS[kind]
     if table == spec["target_entity"]:
         if kind == "gossip_menu_option":
             menu = where.get("menuid", where.get("menu_id"))
@@ -1070,12 +1264,14 @@ def apply_simple_update(conn: sqlite3.Connection, source: str, table: str, assig
         entity = json.dumps((menu, option)) if menu is not None and option is not None else None
         locale = where.get("locale")
     else:
-        idcol = "id" if table == spec["source_table"] and kind == "item" else "entry"
+        idcol = spec['target_id'] if table == spec['target_table'] else spec['source_id']
         entity_id = where.get(idcol)
         entity = json.dumps(entity_id) if entity_id is not None else None
         locale = where.get("locale")
     if not entity:
         return False
+    if kind == 'quest_objective' and isinstance(locale, int):
+        locale = next((code for code, n in LOCALES.items() if n == locale), None)
     updates: dict[str, dict[str, object]] = {}
     for column, value in assignments.items():
         normalized = normalized_update_field(kind, table, column)
@@ -1097,7 +1293,7 @@ def apply_simple_update(conn: sqlite3.Connection, source: str, table: str, assig
 
 
 def apply_gossip_box_join(conn: sqlite3.Connection, source: str, file: str, tokens: list[tuple[str, str]]) -> bool:
-    # Recognize LOAP's specific schema migration, not arbitrary JOIN execution.
+    # Recognize the verified split-table migration, not arbitrary JOIN execution.
     compact = "".join(x[1].lower() for x in tokens)
     required = ("leftjoingossip_menu_option_boxgmobongmo.menuid=gmob.menuidandgmo.optionid=gmob.optionindex",
                 "gmo.boxtext=gmob.boxtext")
@@ -1153,14 +1349,16 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         rows = conn.execute(f"SELECT entity" + (",locale" if storage == "records" else "") + f" FROM {storage} WHERE source=? AND kind=? AND " + condition, [source, kind] + params).fetchall()
         for row in rows:
             key = json.loads(row[0])
-            where = {"menuid": key[0], "optionid": key[1]} if kind == "gossip_menu_option" else {"id" if table == SPECS[kind]["source_table"] and kind == "item" else "entry": key}
+            spec = ALL_SPECS[kind]
+            idcol = spec['entity_fields'][0] if storage == 'entities' else spec['target_id'] if table == spec['target_table'] else spec['source_id']
+            where = {"menuid": key[0], "optionid": key[1]} if kind == "gossip_menu_option" else {idcol: key}
             if storage == "records":
                 where["locale"] = row[1]
             if not apply_simple_update(conn, source, table, assignments, where, file, rank_for(file)):
                 raise ValueError("UPDATE не применён")
     except (ValueError, IndexError) as exc:
         parser_warning(conn, source, file, f"UPDATE {table}: {exc}")
-        if storage == "entities" and kind in ("gameobject", "gossip_menu_option"):
+        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective"):
             condition, params = "1", []
             try:
                 marker = next(i for i, token in enumerate(tokens) if token[1].upper() == "WHERE")
@@ -1173,13 +1371,15 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
 def build_index(_: argparse.Namespace) -> int:
     sources = active_files()
     if not sources:
-        raise RuntimeError("SQL-источники не найдены. Подготовьте .porting/sources/<source>/repo/ и/или db/.")
-    PORTING.mkdir(parents=True, exist_ok=True)
+        raise RuntimeError("SQL-источники не найдены. Подготовьте externals/core/ and externals/references/<source-id>/repo/ or db/.")
+    WORKSPACE.mkdir(parents=True, exist_ok=True)
+    INDEX.parent.mkdir(parents=True, exist_ok=True)
     if INDEX.exists():
         INDEX.unlink()
     conn = db_connect(INDEX)
+    register_sources(conn)
     schemas: dict[tuple[str, str], list[str]] = {}
-    counts = {s: 0 for s in ("alexkulya", "loap", "skyfire")}
+    counts = {s: 0 for s in (*reference_sources(conn), "target")}
     # First pass indexes localized rows, avoiding the cost of decoding every base entity row.
     for source, path, member in sources:
         if not path.exists():
@@ -1195,12 +1395,12 @@ def build_index(_: argparse.Namespace) -> int:
     conn.commit()
     # Base entity indexing is sparse: only IDs with candidate translations are decoded in detail.
     candidates_by_source = {}
-    for source in ("alexkulya", "loap", "skyfire"):
-        ids = {row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE source=?", (source,))}
+    for source in (*reference_sources(conn), "target"):
+        ids = {row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE source=? AND kind IN ('item','gameobject','gossip_menu_option')", (source,))}
         ids.update(row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE kind='gossip_menu_option'"))
-        if source == "skyfire":
-            for upstream in ("alexkulya", "loap"):
-                ids.update(row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE source=?", (upstream,)))
+        if source == "target":
+            for upstream in reference_sources(conn):
+                ids.update(row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE source=? AND kind IN ('item','gameobject','gossip_menu_option')", (upstream,)))
         candidates_by_source[source] = ids
     for source, path, member in sources:
         if not path.exists():
@@ -1227,9 +1427,63 @@ def open_index() -> sqlite3.Connection:
     return sqlite3.connect(INDEX)
 
 
-def get_record(conn: sqlite3.Connection, source: str, kind: str, entity: str, locale: str) -> tuple[dict, str, str] | None:
+def raw_record(conn: sqlite3.Connection, source: str, kind: str, entity: str, locale: str) -> tuple[dict, str, str] | None:
     row = conn.execute("SELECT fields,file,kind FROM records WHERE source=? AND kind=? AND entity=? AND locale=?", (source, kind, entity, locale)).fetchone()
     return (json.loads(row[0]), row[1], row[2]) if row else None
+
+
+def record_table(conn: sqlite3.Connection, source: str, kind: str, entity: str, locale: str) -> str:
+    origin = conn.execute('SELECT table_name FROM record_origins WHERE source=? AND kind=? AND entity=? AND locale=?', (source,kind,entity,locale)).fetchone()
+    spec = ALL_SPECS[kind]
+    return origin[0] if origin else spec['target_table'] if source == 'target' else spec['source_table']
+
+
+def get_record(conn: sqlite3.Connection, source: str, kind: str, entity: str, locale: str) -> tuple[dict, str, str] | None:
+    base = raw_record(conn, source, kind, entity, locale)
+    if kind != 'quest':
+        return base
+    fields, origins, files = {}, {}, []
+    for part in (('quest',) if source == 'target' else ('quest', 'quest_offer_reward', 'quest_request_items')):
+        rec = base if part == 'quest' else raw_record(conn, source, part, entity, locale)
+        if rec:
+            spec = ALL_SPECS[part]
+            table = spec['target_table'] if source == 'target' else spec['source_table']
+            for field, value in rec[0].items():
+                fields[field] = value
+                origins[field] = {'file': rec[1], 'table': table}
+            files.append(rec[1])
+    for objective, texts, file in conn.execute(
+            "SELECT e.entity,r.fields,r.file FROM entities e JOIN records r ON r.source=e.source AND r.kind=e.kind AND r.entity=e.entity "
+            "WHERE e.source=? AND e.kind='quest_objective' AND json_extract(e.fields,'$.questid')=? AND r.locale=? ORDER BY CAST(e.entity AS INTEGER)",
+            (source, json.loads(entity), locale)):
+        text = json.loads(texts).get('description')
+        if text not in (None, ''):
+            field = 'objective:' + objective
+            fields[field] = text
+            table = record_table(conn, source, 'quest_objective', objective, locale)
+            origins[field] = {'file': file, 'table': table, 'objective_id': int(objective)}
+            files.append(file)
+    if not fields:
+        return None
+    fields['_provenance'] = origins
+    return fields, ' | '.join(sorted(set(files))), kind
+
+
+def text_fields_for(conn: sqlite3.Connection, kind: str, entity: str) -> tuple[str, ...]:
+    fields = tuple(SPECS[kind]['text_fields'])
+    if kind == 'quest':
+        objectives = conn.execute("SELECT DISTINCT entity FROM entities WHERE kind='quest_objective' AND json_extract(fields,'$.questid')=? ORDER BY CAST(entity AS INTEGER)", (json.loads(entity),))
+        fields += tuple('objective:' + row[0] for row in objectives)
+    return fields
+
+
+def objective_identity_ok(conn: sqlite3.Connection, entity: str, source: str) -> bool:
+    target = base_entity(conn, 'target', 'quest_objective', entity)
+    upstream = base_entity(conn, source, 'quest_objective', entity)
+    required = ('questid', 'type', 'objectid', 'amount', 'flags', 'description')
+    return bool(target and upstream and not target.get('_evidence_incomplete') and not upstream.get('_evidence_incomplete')
+                and all(field in target and field in upstream and target[field] == upstream[field] for field in required)
+                and ('index' not in target or 'index' not in upstream or target['index'] == upstream['index']))
 
 
 def entity_key(kind: str, entity_arg: str) -> str:
@@ -1242,7 +1496,7 @@ def entity_key(kind: str, entity_arg: str) -> str:
 
 
 def target_locale_record(conn: sqlite3.Connection, kind: str, entity: str, locale: str) -> dict | None:
-    return get_record(conn, "skyfire", kind, entity, locale)[0] if get_record(conn, "skyfire", kind, entity, locale) else None
+    return get_record(conn, "target", kind, entity, locale)[0] if get_record(conn, "target", kind, entity, locale) else None
 
 
 def base_entity(conn: sqlite3.Connection, source: str, kind: str, entity: str) -> dict | None:
@@ -1251,6 +1505,8 @@ def base_entity(conn: sqlite3.Connection, source: str, kind: str, entity: str) -
 
 
 def norm_identity(kind: str, fields: dict) -> tuple:
+    if kind in ('creature', 'quest'):
+        return (kind, fields.get('name' if kind == 'creature' else 'title'))
     if kind == "gossip_menu_option":
         bt = fields.get("optionbroadcasttextid")
         if bt not in (None, "", 0, "0"):
@@ -1263,6 +1519,17 @@ def norm_identity(kind: str, fields: dict) -> tuple:
 
 
 def identities_match(kind: str, source: dict, target: dict) -> bool:
+    if kind in ('creature', 'quest'):
+        required = ('name', 'type', 'unit_class') if kind == 'creature' else ('title', 'objectives', 'details', 'minlevel')
+        structural = CREATURE_STRUCT if kind == 'creature' else ('minlevel', 'method', 'zoneorsort', 'type')
+        name = 'name' if kind == 'creature' else 'title'
+        return bool(isinstance(source.get(name), str) and isinstance(target.get(name), str)
+                    and str(source.get(name) or '').strip() and str(target.get(name) or '').strip()
+                    and not source.get('_evidence_incomplete') and not target.get('_evidence_incomplete')
+                    and all(field in source and field in target and source[field] == target[field] for field in required)
+                    and all(isinstance(value, int) and not isinstance(value, bool) for value in
+                            (source.get('type' if kind == 'creature' else 'minlevel'), target.get('type' if kind == 'creature' else 'minlevel')))
+                    and all(source[field] == target[field] for field in structural if field in source and field in target))
     if kind == "gossip_menu_option":
         source_bt = source.get("optionbroadcasttextid")
         target_bt = target.get("optionbroadcasttextid")
@@ -1279,13 +1546,13 @@ def identities_match(kind: str, source: dict, target: dict) -> bool:
     return norm_identity(kind, source) == norm_identity(kind, target)
 
 
-def identity_ok(conn: sqlite3.Connection, kind: str, entity: str, sources: tuple[str, ...] = ("alexkulya", "loap")) -> tuple[bool, str]:
-    target = base_entity(conn, "skyfire", kind, entity)
+def identity_ok(conn: sqlite3.Connection, kind: str, entity: str, sources: tuple[str, ...] | None = None) -> tuple[bool, str]:
+    target = base_entity(conn, "target", kind, entity)
     if not target:
         return False, "target entity missing"
     tid = norm_identity(kind, target)
     seen = False
-    for src in sources:
+    for src in (sources if sources is not None else reference_sources(conn)):
         candidate = base_entity(conn, src, kind, entity)
         if candidate:
             seen = True
@@ -1295,7 +1562,7 @@ def identity_ok(conn: sqlite3.Connection, kind: str, entity: str, sources: tuple
 
 
 def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str, field: str, *, indexed_provenance: bool = False,
-                  identity_sources: tuple[str, ...] = ("alexkulya", "loap")) -> tuple[str, dict[str, object]]:
+                  identity_sources: tuple[str, ...] | None = None) -> tuple[str, dict[str, object]]:
     if locale not in LOCALES:
         return "UNSUPPORTED", {"reason": "unknown locale"}
     identity, reason = identity_ok(conn, kind, entity, identity_sources)
@@ -1303,7 +1570,7 @@ def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         return ("MISSING" if reason == "target entity missing" else "UNSUPPORTED"), {"reason": reason}
     if locale == "enUS":
         upstream, provenance = {}, {}
-        for source in ("alexkulya", "loap"):
+        for source in reference_sources(conn):
             row = conn.execute("SELECT fields,file FROM entities WHERE source=? AND kind=? AND entity=?", (source, kind, entity)).fetchone()
             if row:
                 text = json.loads(row[0]).get(field)
@@ -1312,7 +1579,7 @@ def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
                     revision = None if indexed_provenance else source_revision(source)
                     provenance[source] = {"repository_revision": revision, "revision_verified": revision is not None,
                                           "file": row[1], "table": SPECS[kind]["target_entity"]}
-        target_row = conn.execute("SELECT fields FROM entities WHERE source='skyfire' AND kind=? AND entity=?", (kind, entity)).fetchone()
+        target_row = conn.execute("SELECT fields FROM entities WHERE source='target' AND kind=? AND entity=?", (kind, entity)).fetchone()
         target_fields = json.loads(target_row[0]) if target_row else {}
         target_val = target_fields.get(field)
         details = {"upstream": upstream, "provenance": provenance, "target": target_val}
@@ -1323,16 +1590,18 @@ def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         value = next(iter(upstream.values()))
         if target_val not in (None, ""):
             return ("TARGET_IDENTICAL" if str(target_val) == value else "CONFLICT"), details
-        return ("MATCH" if len(upstream) == 2 else "SOURCE_ONLY"), details
+        return ("MATCH" if len(upstream) >= 2 else "SOURCE_ONLY"), details
     upstream = {}
     provenance = {}
-    for source in ("alexkulya", "loap"):
+    for source in reference_sources(conn):
         item = get_record(conn, source, kind, entity, locale)
         if item and item[0].get(field) not in (None, ""):
+            if kind == 'quest' and field.startswith('objective:') and not objective_identity_ok(conn, field.split(':')[1], source):
+                return 'UNSUPPORTED', {'reason': f'{source} quest objective identity mismatch', 'objective_id': int(field.split(':')[1])}
             upstream[source] = str(item[0][field])
             revision = None if indexed_provenance else source_revision(source)
             provenance[source] = {"repository_revision": revision, "revision_verified": revision is not None,
-                                  "file": item[1], "table": SPECS[kind]["source_table"]}
+                                  **item[0].get('_provenance', {}).get(field, {"file": item[1], "table": SPECS[kind]["source_table"]})}
     target_record = target_locale_record(conn, kind, entity, locale)
     target_val = target_record.get(field) if target_record else None
     details: dict[str, object] = {"upstream": upstream, "provenance": provenance, "target": target_val}
@@ -1343,7 +1612,7 @@ def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
     value = next(iter(upstream.values()))
     if target_val not in (None, ""):
         return ("TARGET_IDENTICAL" if str(target_val) == value else "CONFLICT"), details
-    if len(upstream) == 2:
+    if len(upstream) >= 2:
         return "MATCH", details
     return "SOURCE_ONLY", details
 
@@ -1352,7 +1621,7 @@ def values_for_kind(conn: sqlite3.Connection, kind: str, entity: str, locales: l
     result = []
     locs = locales or list(LOCALES)
     for locale in locs:
-        for field in SPECS[kind]["text_fields"]:
+        for field in text_fields_for(conn, kind, entity):
             status, detail = compare_value(conn, kind, entity, locale, field)
             result.append((locale, field, status, detail))
     return result
@@ -1364,18 +1633,18 @@ def command_inspect(args: argparse.Namespace) -> int:
     locales = [args.locale] if args.locale else list(LOCALES)
     with open_index() as conn:
         print(f"{kind} {args.entity_id}")
-        for source in ("skyfire", "alexkulya", "loap"):
+        for source in ("target", *reference_sources(conn)):
             base = base_entity(conn, source, kind, key)
             print(f"  {source} base: {json.dumps(base, ensure_ascii=False) if base else 'нет'}")
         for locale in locales:
             if locale not in LOCALES:
                 print(f"  {locale}: UNSUPPORTED (неизвестная локаль)")
                 continue
-            for source in ("skyfire", "alexkulya", "loap"):
+            for source in ("target", *reference_sources(conn)):
                 rec = get_record(conn, source, kind, key, locale)
                 if rec:
                     fields, file, table = rec
-                    actual_table = (SPECS[kind]["target_table"] if source == "skyfire" else SPECS[kind]["source_table"])
+                    actual_table = (SPECS[kind]["target_table"] if source == "target" else SPECS[kind]["source_table"])
                     print(f"  {source} {locale} [{actual_table}] {file}: {json.dumps(fields, ensure_ascii=False)}")
                 elif locale == "enUS":
                     base_row = conn.execute("SELECT fields,file FROM entities WHERE source=? AND kind=? AND entity=?", (source, kind, key)).fetchone()
@@ -1428,9 +1697,9 @@ def export_rows(conn: sqlite3.Connection, kind: str, entity: str, locales: list[
         fields_out = {}
         provenance = []
         statuses = []
-        for field in SPECS[kind]["text_fields"]:
+        for field in text_fields_for(conn, kind, entity):
             status, details = comparisons[(locale, field)] if comparisons is not None else compare_value(
-                conn, kind, entity, locale, field, identity_sources=("loap",) if alias else (proof["confirmed_upstream"],) if proof else ("alexkulya", "loap"))
+                conn, kind, entity, locale, field, identity_sources=tuple(alias["identity_sources"]) if alias else (proof["confirmed_upstream"],) if proof else reference_sources(conn))
             statuses.append(status)
             ups = details.get("upstream", {})
             if status in ("MATCH", "SOURCE_ONLY", "SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS") and ups:
@@ -1439,6 +1708,8 @@ def export_rows(conn: sqlite3.Connection, kind: str, entity: str, locales: list[
                     revision = p.get("repository_revision") or "revision-unverified"
                     provenance.append(f"{src}@{revision}:{p['file']}:{p['table']}")
         if not fields_out:
+            continue
+        if kind in ('creature', 'quest') and any(status in ('CONFLICT', 'UNSUPPORTED') for status in statuses):
             continue
         if proof:
             sql.append(f"-- SAFE_SINGLE_IDENTITY; confirmed={proof['confirmed_upstream']}; rejected={proof['rejected_upstream']}; --allow-single-identity")
@@ -1457,16 +1728,25 @@ def export_rows(conn: sqlite3.Connection, kind: str, entity: str, locales: list[
             n = LOCALES[locale]
             table = SPECS[kind]["target_table"]
             assignments = []
-            columns = ["entry"]
+            columns = [SPECS[kind]['target_id']]
             values = [str(int(numeric_id))]
             for field, value in fields_out.items():
+                if field.startswith('objective:'):
+                    continue
                 col = SPECS[kind]["wide_fields"][field].format(n=n)
                 columns.append(col)
                 values.append(sql_quote(value))
                 assignments.append(f"`{col}`=IF(`{col}` IS NULL OR `{col}`='',{sql_quote(value)},`{col}`)")
-            sql.append(f"-- {locale}; source: {comment}")
-            sql.append(f"INSERT INTO `{table}` ({','.join('`' + c + '`' for c in columns)}) VALUES ({','.join(values)}) "
-                       f"ON DUPLICATE KEY UPDATE {', '.join(assignments)};")
+            if assignments:
+                sql.append(f"-- {locale}; source: {comment}")
+                sql.append(f"INSERT INTO `{table}` ({','.join('`' + c + '`' for c in columns)}) VALUES ({','.join(values)}) "
+                           f"ON DUPLICATE KEY UPDATE {', '.join(assignments)};")
+            if kind == 'quest':
+                for field, value in fields_out.items():
+                    if field.startswith('objective:'):
+                        objective = int(field.split(':')[1])
+                        sql.append(f'-- quest {numeric_id}; {locale}; source: {comment}')
+                        sql.append(f"INSERT INTO `locales_quest_objective` (`id`,`locale`,`description`) VALUES ({objective},{n},{sql_quote(value)}) ON DUPLICATE KEY UPDATE `description`=IF(`description` IS NULL OR `description`='',VALUES(`description`),`description`);")
     return sql
 
 
@@ -1479,6 +1759,8 @@ def command_export(args: argparse.Namespace) -> int:
         target = Path(args.output) if args.output else None
         content = "\n".join(out) + ("\n" if out else "-- Нет безопасных строк для экспорта.\n")
         if target:
+            if WORKSPACE.resolve() not in target.resolve().parents:
+                raise ValueError('Generated SQL must stay under .tmp/localization/; use publish for final output')
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8", newline="\n")
             print(f"SQL сохранён для review (не выполнен): {target}")
@@ -1511,6 +1793,8 @@ def command_manifest(args: argparse.Namespace) -> int:
         content = json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
         if args.output:
             output = Path(args.output)
+            if WORKSPACE.resolve() not in output.resolve().parents:
+                raise ValueError('Generated reports must stay under .tmp/localization/')
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(content, encoding="utf-8", newline="\n")
             print(f"Manifest сохранён для review (данные не применены): {output}")
@@ -1524,8 +1808,11 @@ def command_manifest(args: argparse.Namespace) -> int:
 
 def single_item_identity(conn: sqlite3.Connection, entity: str, locale: str) -> dict | None:
     """A renamed upstream may corroborate text, never structural identity."""
+    refs = reference_sources(conn)
+    if len(refs) != 2:
+        return None  # Preserve the two-reference exception; never discard other evidence.
     bases = {}
-    for source in ("alexkulya", "loap", "skyfire"):
+    for source in (*reference_sources(conn), "target"):
         row = conn.execute("SELECT fields,file FROM entities WHERE source=? AND kind='item' AND entity=?", (source, entity)).fetchone()
         if not row:
             return None
@@ -1533,7 +1820,7 @@ def single_item_identity(conn: sqlite3.Connection, entity: str, locale: str) -> 
     fields = {source: base["fields"] for source, base in bases.items()}
     if not all(isinstance(base.get("name"), str) and base["name"].strip() for base in fields.values()):
         return None
-    confirmed = [source for source in ("alexkulya", "loap") if identities_match("item", fields[source], fields["skyfire"])]
+    confirmed = [source for source in refs if identities_match("item", fields[source], fields["target"])]
     if len(confirmed) != 1:
         return None
     # All indexed non-text fields must be present and equal in all three bases.
@@ -1547,12 +1834,12 @@ def single_item_identity(conn: sqlite3.Connection, entity: str, locale: str) -> 
             return None
         if field in ("class", "subclass") and (not isinstance(values[0], int) or isinstance(values[0], bool) or values[0] < 0):
             return None
-    records = {source: get_record(conn, source, "item", entity, locale) for source in ("alexkulya", "loap")}
+    records = {source: get_record(conn, source, "item", entity, locale) for source in refs}
     if not all(records.values()):
         return None
     texts = {}
     for field in SPECS["item"]["text_fields"]:
-        a, b = (records[source][0].get(field) for source in ("alexkulya", "loap"))
+        a, b = (records[source][0].get(field) for source in refs)
         a, b = (None if value in (None, "") else value for value in (a, b))
         if a != b or (a is not None and not isinstance(a, str)):
             return None
@@ -1560,7 +1847,7 @@ def single_item_identity(conn: sqlite3.Connection, entity: str, locale: str) -> 
             texts[field] = a
     if not texts:
         return None
-    rejected = next(source for source in ("alexkulya", "loap") if source != confirmed[0])
+    rejected = next(source for source in refs if source != confirmed[0])
     return {"confirmed_upstream": confirmed[0], "rejected_upstream": rejected,
             "base_entities": bases, "structural_fields_checked": structural, "localization_text": texts,
             "provenance": {source: {"file": row[1], "table": SPECS["item"]["source_table"]} for source, row in records.items()},
@@ -1579,37 +1866,53 @@ def verified_alias(conn: sqlite3.Connection, kind: str, entity: str, locale: str
     rule = (GO_ALIAS_RULES if kind == "gameobject" else GOSSIP_ALIAS_RULES if kind == "gossip_menu_option" else {}).get(lookup)
     if rule is None:
         return None
+    pair = alias_reference_pair(conn)
+    if pair is None:
+        return None
+    origin, corroborator = pair
+    required_sources = {origin, corroborator, 'target'}
     bases = {}
-    for source in ("alexkulya", "loap", "skyfire"):
+    for source in (*reference_sources(conn), "target"):
         row = conn.execute("SELECT fields,file FROM entities WHERE source=? AND kind=? AND entity=?", (source, kind, entity)).fetchone()
         if not row:
-            return None
+            if source in required_sources:
+                return None
+            continue
         bases[source] = {"fields": json.loads(row[0]), "file": row[1], "table": SPECS[kind]["target_entity"]}
     fields = {source: base["fields"] for source, base in bases.items()}
     if any(base.get("_evidence_incomplete") for base in fields.values()):
         return None
     text_field = "name" if kind == "gameobject" else "optiontext"
     rule_name, old, target_text, expected = rule
-    if fields["alexkulya"].get(text_field) != old or fields["skyfire"].get(text_field) != target_text:
+    if fields[origin].get(text_field) != old or fields["target"].get(text_field) != target_text:
         return None
-    if fields["loap"].get(text_field) != (target_text if kind == "gameobject" else old):
+    if fields[corroborator].get(text_field) != (target_text if kind == "gameobject" else old):
         return None
+    for source in set(fields) - required_sources:
+        # Missing evidence is neutral; available evidence must match an exact
+        # established spelling, never a new normalization or inferred alias.
+        for field in SPECS[kind]['text_fields']:
+            value = fields[source].get(field)
+            established = {fields[role].get(field) for role in required_sources}
+            if value not in (None, '') and value not in established:
+                return None
     if kind == "gameobject":
         required = {"type", "displayid", "size"} | {f"data{n}" for n in range(32)}
-        if any(base.get("type") != expected for base in fields.values()):
+        if any(base.get("type") != expected for source, base in fields.items()
+               if source in required_sources or 'type' in base):
             return None
         structural = sorted(set().union(*(base.keys() for base in fields.values())) - {"name", "castbarcaption"})
     else:
         required = {"optiontype", "optionicon", "optionnpcflag", "actionmenuid", "actionpoiid", "boxcoded", "boxmoney"}
         structural = sorted(required | {"optionbroadcasttextid", "boxbroadcasttextid"})
-        if fields["loap"].get("optionbroadcasttextid") != expected or fields["skyfire"].get("optionbroadcasttextid") != expected:
+        if fields[corroborator].get("optionbroadcasttextid") != expected or fields["target"].get("optionbroadcasttextid") != expected:
             return None
     evidence = {}
     for field in structural:
         if field.startswith("_"):
             continue
         present = {source: base[field] for source, base in fields.items() if field in base}
-        if field in required and (len(present) != 3 or any(value is None for value in present.values())):
+        if field in required and (not required_sources.issubset(present) or any(value is None for value in present.values())):
             return None
         if field in required:
             types = (int, float) if field == "size" else (int,)
@@ -1618,23 +1921,26 @@ def verified_alias(conn: sqlite3.Connection, kind: str, entity: str, locale: str
         if len(present) > 1 and not all(value == next(iter(present.values())) for value in present.values()):
             return None
         evidence[field] = present
-    records = {source: get_record(conn, source, kind, entity, locale) for source in ("alexkulya", "loap", "skyfire")}
+    records = {source: get_record(conn, source, kind, entity, locale) for source in (*reference_sources(conn), "target")}
     texts = {source: {field: None if not row or row[0].get(field) in (None, "") else row[0][field] for field in SPECS[kind]["text_fields"]}
              for source, row in records.items()}
-    if any(value is not None for value in texts["skyfire"].values()):
+    if any(value is not None for value in texts["target"].values()):
         return None
-    if not isinstance(texts["alexkulya"][text_field], str) or not texts["alexkulya"][text_field]:
+    if not isinstance(texts[origin][text_field], str) or not texts[origin][text_field]:
         return None
     if any(value is not None and not isinstance(value, str) for source in texts for value in texts[source].values()):
         return None
     if kind == "gameobject":
-        if not records["loap"] or texts["alexkulya"] != texts["loap"]:
+        if not records[corroborator] or texts[origin] != texts[corroborator]:
             return None
-    elif records["loap"]:
-        if any(texts["alexkulya"][field] != texts["loap"][field] for field in SPECS[kind]["text_fields"]):
+    elif records[corroborator]:
+        if any(texts[origin][field] != texts[corroborator][field] for field in SPECS[kind]["text_fields"]):
             return None
-    return {"rule_name": rule_name, "reason": "Фиксированный key и точные English aliases подтверждены; доступная структура не противоречит; ruRU candidate согласован; target locale пустой",
-            "source_target_text": {source: base[text_field] for source, base in fields.items()},
+    for source in set(texts) - required_sources:
+        if any(value is not None and value != texts[origin][field] for field, value in texts[source].items()):
+            return None
+    return {"rule_name": rule_name, "identity_sources": [corroborator], "evidence_roles": {'origin':origin,'corroborator':corroborator}, "reason": "Fixed key and exact English aliases verified; structure consistent; ruRU candidate agreed; target locale empty",
+            "source_target_text": {source: base.get(text_field) for source, base in fields.items()},
             "structural_evidence": evidence, "base_entities": bases, "localization_text": texts,
             "broadcast_evidence": evidence.get("optionbroadcasttextid") if kind == "gossip_menu_option" else None,
             "provenance": {source: {"file": row[1], "table": SPECS[kind]["source_table"]} for source, row in records.items() if row}}
@@ -1646,12 +1952,17 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
     key_parts = key if kind == "gossip_menu_option" and isinstance(key, list) else [key]
     valid_key = (len(key_parts) == (2 if kind == "gossip_menu_option" else 1)
                  and all(isinstance(part, int) and not isinstance(part, bool) and part >= 0 for part in key_parts))
-    records = {source: get_record(conn, source, kind, entity, locale) for source in ("alexkulya", "loap", "skyfire")}
-    values = {source: {field: record[0].get(field) if record else None for field in SPECS[kind]["text_fields"]}
+    records = {source: get_record(conn, source, kind, entity, locale) for source in (*reference_sources(conn), "target")}
+    fields = text_fields_for(conn, kind, entity)
+    values = {source: {field: record[0].get(field) if record else None for field in fields}
               for source, record in records.items()}
-    provenance = {source: {"file": record[1], "table": SPECS[kind]["target_table"] if source == "skyfire" else SPECS[kind]["source_table"]}
+    provenance = {source: {"file": record[1], "table": SPECS[kind]["target_table"] if source == "target" else SPECS[kind]["source_table"]}
                   for source, record in records.items() if record}
-    candidates = [source for source in ("alexkulya", "loap") if any(value not in (None, "") for value in values[source].values())]
+    if kind == 'quest':
+        for source, record in records.items():
+            if record:
+                provenance[source]['fields'] = record[0].get('_provenance', {})
+    candidates = [source for source in reference_sources(conn) if any(value not in (None, "") for value in values[source].values())]
     identity, identity_reason = identity_ok(conn, kind, entity) if candidates else (False, "no candidates")
     proof = single_item_identity(conn, entity, locale) if kind == "item" and candidates and not identity and valid_key else None
     alias = verified_alias(conn, kind, entity, locale) if kind in ("gameobject", "gossip_menu_option") and valid_key and candidates else None
@@ -1663,16 +1974,16 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
                 identity, identity_reason = False, f"{source} no upstream base identity"
                 break
     comparisons = {}
-    for field in SPECS[kind]["text_fields"]:
+    for field in fields:
         if candidates and not identity and not proof and not alias:
             status, detail = "UNSUPPORTED", {"reason": identity_reason}
         elif not candidates:
-            status, detail = ("TARGET_IDENTICAL" if values["skyfire"][field] not in (None, "") else "MISSING"), {}
+            status, detail = ("TARGET_IDENTICAL" if values["target"][field] not in (None, "") else "MISSING"), {}
         else:
             # The index does not store upstream revisions. Do not let live Git
             # HEAD alter output from an otherwise unchanged index.
             status, detail = compare_value(conn, kind, entity, locale, field, indexed_provenance=True,
-                                          identity_sources=("loap",) if alias else (proof["confirmed_upstream"],) if proof else ("alexkulya", "loap"))
+                                          identity_sources=tuple(alias["identity_sources"]) if alias else (proof["confirmed_upstream"],) if proof else reference_sources(conn))
             if alias and status in ("MATCH", "SOURCE_ONLY"):
                 status = "VERIFIED_ALIAS"
             if proof and status == "MATCH":
@@ -1715,7 +2026,7 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
     reason = reason.replace("target entity missing", "target entity отсутствует").replace("identity mismatch", "identity не совпадает").replace("no upstream base identity", "нет upstream base identity")
     for detail in comparisons.values():
         if "reason" in detail:
-            detail["reason"] = reason
+            detail["reason"] = detail['reason'].replace('identity mismatch', 'identity не совпадает') if kind == 'quest' else reason
     entry = {"entity_type": kind, "entity_key": key, "locale": locale,
              "status": status, "reason": reason, "candidates_found": bool(candidates),
              "exported": bool(sql), "identity_failed": bool(candidates and not identity and not proof and not alias),
@@ -1726,7 +2037,7 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         entry["verified_alias"] = alias
     if not sql or proof or alias:
         entry["base_entities"] = {}
-        for source in ("alexkulya", "loap", "skyfire"):
+        for source in (*reference_sources(conn), "target"):
             row = conn.execute("SELECT fields,file FROM entities WHERE source=? AND kind=? AND entity=?", (source, kind, entity)).fetchone()
             if row:
                 entry["base_entities"][source] = {"fields": json.loads(row[0]), "file": row[1], "table": SPECS[kind]["target_entity"]}
@@ -1751,7 +2062,7 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
             header = {"target": "SkyFire 5.4.8", "locale": locale, "selection": "indexed_target_entities",
                       "allow_single_identity": allow_single_identity,
                       "allow_verified_aliases": allow_verified_aliases,
-                      "counter_units": "entity/locale; статусы взаимоисключающие; identity_failed входит в unsupported; skipped = total_target_entities - exported",
+                      "counter_units": "entity/locale; mutually exclusive statuses; identity_failed is included in unsupported; skipped = total_target_entities - exported",
                       "sql_files": {kind: f"{kind}-{locale}.sql" for kind in kinds}}
             report.write(json.dumps(header, ensure_ascii=False, sort_keys=True, indent=2)[:-2] + ',\n  "entries": [\n')
             first_entry = True
@@ -1759,9 +2070,9 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                 counts = {name: 0 for name in ("total_target_entities", "candidates_found", "exported", "MATCH", "SOURCE_ONLY", "SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS", "TARGET_IDENTICAL", "CONFLICT", "MISSING", "UNSUPPORTED", "identity_failed", "unsupported", "skipped")}
                 summary[kind] = counts
                 order = "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),entity" if kind == "gossip_menu_option" else "json_extract(entity,'$'),entity"
-                rows = conn.execute("SELECT entity FROM entities WHERE source='skyfire' AND kind=? ORDER BY " + order, (kind,))
+                rows = conn.execute("SELECT entity FROM entities WHERE source='target' AND kind=? ORDER BY " + order, (kind,))
                 with (directory / f"{kind}-{locale}.sql").open("w", encoding="utf-8", newline="\n") as sql_file:
-                    sql_file.write(f"-- SkyFire 5.4.8; {kind}; {locale}; review SQL, не применён автоматически.\n")
+                    sql_file.write(f"-- SkyFire 5.4.8; {kind}; {locale}; review SQL, not applied automatically.\n")
                     for (entity,) in rows:
                         entry, statements = bulk_decision(conn, kind, entity, locale, allow_single_identity=allow_single_identity,
                                                           allow_verified_aliases=allow_verified_aliases)
@@ -1784,11 +2095,14 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
             totals = {key: sum(counts[key] for counts in summary.values()) for key in next(iter(summary.values()), {})}
             report.write('\n  ],\n  "summary": ' + json.dumps(summary, ensure_ascii=False, sort_keys=True, indent=2))
             report.write(',\n  "totals": ' + json.dumps(totals, ensure_ascii=False, sort_keys=True, indent=2) + "\n}\n")
+    publishing.create_bundle(directory, locale, summary)
     return summary
 
 
 def command_export_all(args: argparse.Namespace) -> int:
-    directory = PORTING / "review"
+    directory = Path(args.output_dir) if args.output_dir else WORKSPACE / "review" / args.locale
+    if WORKSPACE.resolve() not in directory.resolve().parents:
+        raise ValueError('Review output must stay under .tmp/localization/')
     with closing(open_index()) as conn:
         bulk_export(conn, [args.entity_type] if args.entity_type else list(SPECS), args.locale, directory,
                     allow_single_identity=args.allow_single_identity, allow_verified_aliases=args.allow_verified_aliases)
@@ -1796,15 +2110,39 @@ def command_export_all(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_publish(args: argparse.Namespace) -> int:
+    directory = Path(args.input_dir) if args.input_dir else WORKSPACE / 'review' / args.locale
+    if WORKSPACE.resolve() not in directory.resolve().parents:
+        raise ValueError('Reviewed inputs must be under .tmp/localization/')
+    if args.command == 'approve-review':
+        result = publishing.approve(directory, args.locale, args.acknowledge_skipped)
+    else:
+        output = ROOT / 'localizations' / args.locale
+        if ROOT.resolve() not in output.resolve().parents:
+            raise ValueError('Publication output must stay inside this repository')
+        result = publishing.publish(directory, output, args.locale, args.entity_types, SPECS, LOCALES)
+    print(json.dumps(result,ensure_ascii=False,sort_keys=True))
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
-    sub.add_parser("index", help="построить локальный потоковый SQLite-индекс")
-    q = sub.add_parser("export-all", help="экспортировать безопасные переводы target entities и общий report")
+    sub.add_parser("index", help="Build the local streaming SQLite index")
+    for command in ('approve-review', 'publish'):
+        q = sub.add_parser(command, help='Record review approval' if command == 'approve-review' else 'Publish hash-bound reviewed SQL, offline')
+        q.add_argument('--locale', required=True, choices=tuple(code for code in LOCALES if code != 'enUS'))
+        q.add_argument('--input-dir', help='Reviewed input directory under .tmp/localization/')
+        if command == 'approve-review':
+            q.add_argument('--acknowledge-skipped', action='store_true', help='Explicitly acknowledge conflicts/skips in the reviewed report')
+        else:
+            q.add_argument('entity_types', nargs='*', choices=tuple(SPECS))
+    q = sub.add_parser("export-all", help="Export safe target translations and a review report")
     q.add_argument("entity_type", nargs="?", choices=tuple(SPECS))
     q.add_argument("--locale", required=True, choices=tuple(code for code in LOCALES if code != "enUS"))
-    q.add_argument("--allow-single-identity", action="store_true", help="разрешить item SAFE_SINGLE_IDENTITY после проверки одинаковых текстов и структуры")
-    q.add_argument("--allow-verified-aliases", action="store_true", help="разрешить только фиксированные gameobject/gossip aliases с полным evidence")
+    q.add_argument("--output-dir", help="Review directory under .tmp/localization/; default review/<locale>")
+    q.add_argument("--allow-single-identity", action="store_true", help="Enable item SAFE_SINGLE_IDENTITY after text and structure verification")
+    q.add_argument("--allow-verified-aliases", action="store_true", help="Enable only fixed gameobject/gossip aliases with complete evidence")
     for cmd in ("inspect", "compare", "export"):
         q = sub.add_parser(cmd)
         q.add_argument("entity_type", choices=tuple(SPECS))
@@ -1818,7 +2156,7 @@ def parser() -> argparse.ArgumentParser:
     q.add_argument("entity_type", choices=tuple(SPECS))
     q.add_argument("entity_id", help="ID; для gossip_menu_option: MenuID,OptionID")
     q.add_argument("--locale", action="append", choices=tuple(LOCALES))
-    q.add_argument("--output", help="путь JSON; по умолчанию stdout")
+    q.add_argument("--output", help="JSON path under .tmp/localization/; default stdout")
     return p
 
 
@@ -1829,6 +2167,8 @@ def main() -> int:
             return build_index(args)
         if args.command == "export-all":
             return command_export_all(args)
+        if args.command in ('approve-review','publish'):
+            return command_publish(args)
         if args.command == "inspect":
             return command_inspect(args)
         if args.command == "compare":
@@ -1836,7 +2176,7 @@ def main() -> int:
         if args.command == "export-manifest":
             return command_manifest(args)
         return command_export(args)
-    except (RuntimeError, ValueError, sqlite3.Error) as exc:
+    except (RuntimeError, ValueError, sqlite3.Error, OSError) as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
         return 2
 

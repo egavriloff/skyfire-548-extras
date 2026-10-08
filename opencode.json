@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "lmstudio/prism-ml/bonsai-27b",
+  "provider": {
+    "lmstudio": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LM Studio",
+      "options": {
+        "baseURL": "http://127.0.0.1:1234/v1"
+      },
+      "models": {
+        "zai-org/glm-4.7-flash": {
+          "name": "GLM 4.7 Flash"
+        },
+        "liquid/lfm2-24b-a2b": {
+          "name": "LFM2 24B A2B"
+        },
+        "qwen/qwen3.8-27b": {
+          "name": "Qwen3.8 27B"
+        },
+        "prism-ml/bonsai-27b": {
+          "name": "Bonsai 27B"
+        }
+      }
+    }
+  }
+}

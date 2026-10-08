@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ProjectSkyfire/SkyFire_548
-          path: skyfire
+          path: externals/core/repo
           fetch-depth: 1
 
       - name: Install system dependencies
@@ -132,7 +132,7 @@ jobs:
             [ "$name" = "_template" ] && continue
 
             echo "Installing $name"
-            cp -R "$module" "skyfire/modules/$name"
+            cp -R "$module" "externals/core/repo/modules/$name"
           done
 
       # ------------------------------------------------------------
@@ -140,7 +140,7 @@ jobs:
       # ------------------------------------------------------------
 
       - name: Configure SkyFire
-        working-directory: skyfire
+        working-directory: externals/core/repo
         run: |
           cmake \
             -S . \
@@ -155,7 +155,7 @@ jobs:
             -DOPENSSL_ROOT_DIR="$HOME/.local/openssl"
 
       - name: Build SkyFire + modules
-        working-directory: skyfire
+        working-directory: externals/core/repo
         run: |
           cmake --build build --parallel "$(nproc)"
 

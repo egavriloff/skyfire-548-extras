@@ -9,3 +9,6 @@ Start by reading:
 - `.agents/README.md`
 
 Follow the instructions there before making changes to this repository.
+
+Repository locations are defined in `.agents/repository.md`; localization workflow
+is defined in `.agents/localization.md`. Keep repository documentation English-only.

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT="/workspace/repo"
-SKYFIRE_DIR="$ROOT/.skyfire/SkyFire_548"
+SKYFIRE_DIR="$ROOT/externals/core/repo"
 MODULES_DIR="$ROOT/modules"
 BUILD_DIR="$SKYFIRE_DIR/build/docker-modules"
 

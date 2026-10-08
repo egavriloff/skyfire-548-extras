@@ -1,7 +1,11 @@
 /.venv/
-/.devcontainer
-/.skyfire/*
-!/.skyfire/SkyFire_548/
-/.porting/
+/.devcontainer/
+/.tmp/*
+
+/externals/core/*
+!/externals/core/.gitkeep
+/externals/references/*
+!/externals/references/.gitkeep
 
 compile_commands.json
+open_code.json

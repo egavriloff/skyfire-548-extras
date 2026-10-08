@@ -30,13 +30,13 @@ class SingleIdentityTests(unittest.TestCase):
             61957: ("ObsoleteQA Combat Test Tank Relic", "ObsoleteQA Combat Test Tank Relic", "QA Combat Test Tank Relic", 15, 0, 4, 11, "ObsoleteQA Combat Test Tank Relic"),
             63772: ('Spearwarden\'s "Lucky" Charm', 'Spearwarden\'s "Lucky" Charm', "Spearwarden's Lucky Charm", 15, 0, 4, 11, '"Счастливый" оберег охранника-копейщика'),
         }
-        alex, loap, target, cls, sub, target_cls, target_sub, text = cases[key]
-        for source, name in (("alexkulya", alex), ("loap", loap), ("skyfire", target)):
-            fields = {"name": name, "class": target_cls if source == "skyfire" else cls,
-                      "subclass": target_sub if source == "skyfire" else sub,
-                      "description": "Custom description" if source == "alexkulya" and key in (32545, 32549) else ""}
+        origin, corroborator, target, cls, sub, target_cls, target_sub, text = cases[key]
+        for source, name in (("source-a", origin), ("source-b", corroborator), ("target", target)):
+            fields = {"name": name, "class": target_cls if source == "target" else cls,
+                      "subclass": target_sub if source == "target" else sub,
+                      "description": "Custom description" if source == "source-a" and key in (32545, 32549) else ""}
             self.conn.execute("INSERT INTO entities VALUES(?,?,?,?,?,?)", (source, "item", str(key), json.dumps(fields), source + "-base.sql", 1))
-        for source in ("alexkulya", "loap"):
+        for source in ("source-a", "source-b"):
             fields = {"name": text}
             if key == 50442:
                 fields["description"] = "Клинок Верховного Лорда Алых"
@@ -68,11 +68,11 @@ class SingleIdentityTests(unittest.TestCase):
             with self.subTest(key=entry["entity_key"]):
                 self.assertTrue(entry["exported"])
                 proof = entry["single_identity"]
-                self.assertEqual(proof["confirmed_upstream"], "loap")
-                self.assertEqual(proof["rejected_upstream"], "alexkulya")
-                self.assertEqual(set(proof["base_entities"]), {"skyfire", "loap", "alexkulya"})
+                self.assertEqual(proof["confirmed_upstream"], "source-b")
+                self.assertEqual(proof["rejected_upstream"], "source-a")
+                self.assertEqual(set(proof["base_entities"]), {"target", "source-b", "source-a"})
                 self.assertIn("name", proof["localization_text"])
-                self.assertIn("file", proof["provenance"]["loap"])
+                self.assertIn("file", proof["provenance"]["source-b"])
                 self.assertIn("--allow-single-identity", entry["reason"])
         self.assertIn("SAFE_SINGLE_IDENTITY", (path / "item-ruRU.sql").read_text(encoding="utf-8"))
 
@@ -86,38 +86,38 @@ class SingleIdentityTests(unittest.TestCase):
         self.assertEqual(summary["SAFE_SINGLE_IDENTITY"], 0)
         self.assertEqual(summary["unsupported"], 4)
 
-    def test_class_conflict_even_when_loap_name_matches(self):
+    def test_class_conflict_even_when_corroborator_name_matches(self):
         self.fixture(50442)
-        self.mutate_base("loap", **{"class": 4})
+        self.mutate_base("source-b", **{"class": 4})
         self.assertEqual(self.run_export(True)[0]["exported"], 0)
 
     def test_rejected_upstream_structural_conflict_not_ignored(self):
         self.fixture(50442)
-        self.mutate_base("alexkulya", subclass=7)
+        self.mutate_base("source-a", subclass=7)
         self.assertEqual(self.run_export(True)[0]["exported"], 0)
 
     def test_additional_indexed_structural_mismatch(self):
         self.fixture(50442)
-        for source in ("skyfire", "loap", "alexkulya"):
-            self.mutate_base(source, displayid=1 if source != "alexkulya" else 2)
+        for source in ("target", "source-b", "source-a"):
+            self.mutate_base(source, displayid=1 if source != "source-a" else 2)
         self.assertEqual(self.run_export(True)[0]["exported"], 0)
 
     def test_localization_disagreement_blocks_mode(self):
         self.fixture(50442)
-        self.conn.execute("UPDATE records SET fields=? WHERE source='alexkulya'", (json.dumps({"name": "Другой перевод"}),))
+        self.conn.execute("UPDATE records SET fields=? WHERE source='source-a'", (json.dumps({"name": "Другой перевод"}),))
         self.assertEqual(self.run_export(True)[0]["exported"], 0)
 
     def test_missing_target_and_unconfirmed_identity(self):
         self.fixture(50442)
-        self.mutate_base("loap", name="Other")
+        self.mutate_base("source-b", name="Other")
         self.assertEqual(self.run_export(True)[0]["exported"], 0)
-        self.conn.execute("DELETE FROM entities WHERE source='skyfire'")
+        self.conn.execute("DELETE FROM entities WHERE source='target'")
         self.assertIsNone(localize.single_item_identity(self.conn, "50442", "ruRU"))
         self.assertEqual(self.run_export(True)[0]["total_target_entities"], 0)
 
     def test_target_translation_conflict_remains_blocked(self):
         self.fixture(50442)
-        self.conn.execute("INSERT INTO records VALUES(?,?,?,?,?,?,?)", ("skyfire", "item", "50442", "ruRU", json.dumps({"name": "Иное"}), "target.sql", 1))
+        self.conn.execute("INSERT INTO records VALUES(?,?,?,?,?,?,?)", ("target", "item", "50442", "ruRU", json.dumps({"name": "Иное"}), "target.sql", 1))
         summary, report, _ = self.run_export(True)
         self.assertEqual(summary["CONFLICT"], 1)
         self.assertEqual(summary["exported"], 0)

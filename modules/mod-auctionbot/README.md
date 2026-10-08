@@ -1,17 +1,15 @@
 # AuctionBot 1.0.1 — SkyFire 5.4.8
 
-Порт AuctionHouseBot из Pandaria 5.4.8 Project в самостоятельный модуль.
-Исходники ранее находились в локальном `source/port`; точный URL и ревизия
-донора не зафиксированы, поэтому в `module.yml` они оставлены `null`. Изменения ядра
-не требуются. Лицензия исходного донора — GPL-2.0-or-later; исходные уведомления
-сохранены в перенесённых файлах.
+Standalone port of AuctionHouseBot from Pandaria 5.4.8 Project. The original local
+input was source/port; its exact URL and revision were not recorded, so module.yml
+keeps those values null. No core changes are required. The original donor license
+is GPL-2.0-or-later; notices remain in the ported files.
 
-## Статус и состав
+## Status and components
 
-**Working** — по подтверждению владельца модуль уже работает на его сервере.
-Флаги `testing.build`, `testing.startup` и `testing.ingame` в `module.yml`
-отражают эту существующую рабочую установку. При оформлении модуля под структуру
-репозитория повторная сборка и игровые проверки не выполнялись.
+**Working**, based on the owner's existing live installation. testing.build,
+testing.startup and testing.ingame describe that installation. Packaging into this
+repository did not include a new build or in-game verification.
 
 ```text
 mod-auctionbot/
@@ -23,60 +21,55 @@ mod-auctionbot/
 └── tests/
 ```
 
-Модуль содержит исходники и конфигурацию; SQL-миграции и патчи ядра не требуются.
-Исходные уведомления Pandaria 5.4.8 Project сохранены в файлах.
+Includes source and configuration; no SQL migrations or core patches are needed.
+Pandaria 5.4.8 Project attribution remains in the source files.
 
-## Возможности
+## Features
 
-- Seller: заполнение аукциона по качеству, классу и настраиваемым фильтрам;
-  случайные стаки, свойства предметов, цены и время жизни.
-- Buyer: вероятностные ставки и выкуп выставленных игроками предметов.
-- Отдельные параметры Alliance, Horde и Neutral. При межфракционном аукционе
-  обрабатывается один общий рынок с параметрами **Neutral**.
-- Команды из игры и консоли, перезагрузка настроек, статистика и обновление лотов.
-- Существующие NPC-аукционисты выбираются автоматически либо по `creature.guid`.
-  При отсутствии подходящего NPC соответствующий рынок отключается с записью в лог.
+- Seller fills auctions using quality/class filters, randomized stacks, properties,
+  prices and durations.
+- Buyer probabilistically bids on or buys player auctions.
+- Alliance, Horde and Neutral settings are independent. Cross-faction auctions use
+  one shared market with Neutral settings.
+- In-game/console commands provide reload, statistics and auction rebuilding.
+- Existing auctioneers are selected automatically or by creature.guid. A market
+  without a suitable auctioneer is disabled and logged.
 
-## Сборка и установка
+## Build and install
 
-В этом репозитории модуль находится в **`modules/mod-auctionbot`**.
-Локальное ядро для стандартной Docker-сборки — `.skyfire/SkyFire_548`.
-Из корня репозитория выполните:
+In this repository the module is modules/mod-auctionbot. The local target checkout
+is externals/core/repo/. From the repository root on Windows:
 
 ```powershell
 .\build.cmd modules
 .\build.cmd build
 ```
 
-Первая команда проверяет сборку модулей, вторая также собирает `worldserver`.
-На Linux/macOS используйте `./build.sh modules` и `./build.sh build`.
-Сборочный скрипт сам подключает модули из репозитория к ядру.
+The first command builds modules; the second also builds worldserver. On Linux/macOS
+use ./build.sh modules or ./build.sh build. The launcher links repository modules
+into the target core automatically.
 
-Для отдельной установки скопируйте каталог `modules/mod-auctionbot` в
-`<SkyFire_548>/modules/mod-auctionbot` и общий каталог `modules/_common` в
-`<SkyFire_548>/modules/_common`, затем:
+For a separate installation copy modules/mod-auctionbot into the core's modules/
+directory and copy modules/_common alongside it:
 
-1. Повторно выполните конфигурацию CMake обычным способом для вашей сборки
-   SkyFire с `MODULES=1`: обнаружение новых папок происходит на этапе конфигурации.
-2. Соберите `worldserver`. Загрузчик `Addmod_auctionbotScripts()` будет добавлен
-   системой модулей автоматически. Это статический модуль, отдельной DLL нет.
-3. Положите `conf/auctionbot.conf.dist` рядом с используемым `worldserver.conf`
-   и скопируйте его в `auctionbot.conf`. На Windows штатная сборка также копирует
-   `.conf.dist` рядом с бинарником; если основной конфиг в другом каталоге,
-   файлы модуля должны находиться именно рядом с основным конфигом.
-4. Укажите ID выделенного аккаунта, на котором уже существует хотя бы один персонаж.
-   Модуль сам не создаёт аккаунты, персонажей, NPC или таблицы БД.
-5. Включите нужных агентов и перезапустите сервер либо выполните `.ahbot reload`,
-   если сервер уже собран с модулем.
+1. Reconfigure CMake with MODULES=1 so the new directories are discovered.
+2. Build worldserver. The module system registers Addmod_auctionbotScripts()
+   automatically; this is a static module, not a separate DLL.
+3. Put auctionbot.conf.dist beside the active worldserver.conf, then copy it to
+   auctionbot.conf. A standard Windows build also copies .conf.dist beside the
+   executable; when the main config lives elsewhere, put module configs beside it.
+4. Set a dedicated account ID that already has at least one character. The module
+   does not create accounts, characters, NPCs or database tables.
+5. Enable the desired agents and restart, or run .ahbot reload if the server already
+   includes the module.
 
-Общий загрузчик `_common/ModuleConfig.h` читает `.conf.dist`, затем пользовательский `.conf`
-при запуске, `.reload config` и `.ahbot reload`. Параметры лучше
-хранить в `auctionbot.conf`, а не в основном конфиге сервера. Оба агента по
-умолчанию выключены. Отсутствующий аккаунт/персонаж блокирует запуск бота.
+_common/ModuleConfig.h loads .conf.dist then user .conf on startup, .reload config
+and .ahbot reload. Keep overrides in auctionbot.conf. Both agents are disabled by
+default. A missing account/character prevents the bot from starting.
 
-## Пример первого запуска
+## Initial configuration
 
-В существующем `auctionbot.conf` измените следующие строки (123 замените своим ID):
+Replace account 123 with your dedicated account ID:
 
 ```ini
 AuctionHouseBot.Account = 123
@@ -94,23 +87,21 @@ AuctionHouseBot.Items.Amount.Orange = 0
 AuctionHouseBot.Items.Amount.Yellow = 0
 ```
 
-Квоты приблизительные: donor распределяет их между классами с округлением.
-Интервал относится к одной операции seller/buyer на одном рынке; агент чередует
-рынки, поэтому полный обход может занимать несколько интервалов.
+Quotas are approximate because the donor distributes them between classes with
+rounding. The interval applies to one seller/buyer operation on one market; a full
+market rotation may take several intervals.
 
-Для покупателя включите `AuctionHouseBot.Buyer.Enabled` и нужные
-`AuctionHouseBot.Buyer.Alliance.Enabled`, `.Horde.Enabled`, `.Neutral.Enabled`.
-При общем аукционе обязательно используйте `.Neutral.Enabled`.
+For buying, enable Buyer.Enabled and the desired Buyer.Alliance/Horde/Neutral.Enabled
+settings. A shared auction house requires Neutral.Enabled. Auctioneer.Alliance,
+Horde and Neutral values of 0 select automatically. Explicit values are creature.guid,
+not creature entry or character GUID; an invalid explicit value disables that market
+without automatic replacement.
 
-`AuctionHouseBot.Auctioneer.Alliance/Horde/Neutral = 0` включает автоматический
-поиск. Ненулевое значение — GUID спавна из `creature`, **не entry NPC и не GUID
-персонажа**. Неверное явно заданное значение отключает рынок, без автоматической замены.
+## Commands
 
-## Команды
-
-В консоли команды вводятся без начальной точки. Доступ из игры требует GM-уровня
-и существующего RBAC-разрешения `RBAC_PERM_COMMAND_RELOAD_CONFIG` (630).
-Новые SQL-разрешения и записи локализации не нужны; сообщения команд на английском.
+Console commands omit the leading dot. In-game access requires GM privileges and
+existing RBAC_PERM_COMMAND_RELOAD_CONFIG (630). No new SQL permissions/localizations
+are required; command messages are English.
 
 ```text
 .ahbot status
@@ -123,76 +114,63 @@ AuctionHouseBot.Items.Amount.Yellow = 0
 .ahbot rebuild all
 ```
 
-Числа в командах `items` и `ratio`: 0–10000. Эти изменения действуют в памяти
-до reload/перезапуска; для сохранения редактируйте конфиг. `rebuild` помечает
-истёкшими только лоты персонажей бота без ставок; `rebuild all` включает лоты
-со ставками. Завершение и почту обрабатывает штатный цикл аукциона. Это не
-немедленное удаление всех лотов и не изменение аукционов других продавцов.
+items/ratio numbers range from 0 to 10000. Changes last until reload/restart; edit
+the config for persistence. rebuild expires only bot auctions without bids;
+rebuild all includes auctions with bids. The normal auction update handles completion
+and mail. These commands do not immediately delete all auctions or alter other sellers.
 
-## Поведение экономики и ограничения 1.0
+## Economy and limits
 
-- Бот создаёт предметы и деньги; стоимость ставок/депозитов не списывается с
-  кошелька персонажа. Это донорская модель наполнения рынка.
-- Штатная почта доставляет проданные/купленные/истёкшие предметы и выручку
-  персонажам. Автоочистки почты выделенного аккаунта в 1.0 нет.
-- Не используйте личный игровой аккаунт как аккаунт бота: его лоты считаются
-  ботскими. Для управления уже созданными лотами сохраняйте тот же аккаунт.
-- Цена ограничена **4 294 967 295 медных за лот**: ядро хранит цены в `uint64`,
-  но API уведомления о перебитой ставке принимает `uint32`. Buyer пропускает
-  лоты/ставки выше этого предела. Внутренние суммы и запись ставок используют `uint64`.
-- Сроки ограничены 1–72 часами, цикл — 1–1000 операциями, интервал — 1–3600 секунд.
-- Если шаблоны предметов/таблицы добычи не дают подходящих предметов, seller
-  отключается с сообщением в логе `ahbot`. Специальные таблицы модуля не нужны.
+- The donor economy creates items/money; bids/deposits do not debit the character.
+- Normal mail delivers sold/bought/expired items and proceeds. Version 1.0 has no
+  automatic dedicated-account mail cleanup.
+- Do not use a personal playing account: its auctions count as bot auctions. Keep
+  the same account to manage previously created bot auctions.
+- Prices are limited to 4,294,967,295 copper per auction. Storage uses uint64 but
+  the outbid notification API takes uint32; Buyer skips auctions/bids above that
+  limit. Internal sums and bid persistence use uint64.
+- Duration: 1–72 hours; cycle: 1–1000 operations; interval: 1–3600 seconds.
+- Seller disables itself with an ahbot log message if item/loot templates provide
+  no eligible items. No special module tables are required.
 
-## Проверка
+## Verification
 
-Стандартная проверка структуры, метаданных и исходников из корня репозитория:
+From the repository root run bash .ci/module-verify/verify.sh for static checks.
+Use build.cmd modules or ./build.sh modules for compilation; static checks do not
+replace a real build.
 
-```sh
-bash .ci/module-verify/verify.sh
-```
-
-Для проверки компиляции используйте `build.cmd modules` (Windows) или
-`./build.sh modules` (Linux/macOS). Статическая проверка не заменяет сборку.
-
-Дополнительно для существующей **MSVC Release/x64** сборки доступен локальный
-скрипт; путь к каталогу сборки передаётся явно:
+For an existing MSVC Release/x64 build, pass its build directory explicitly:
 
 ```powershell
 python modules/mod-auctionbot/tests/compile.py "D:/path/to/SkyFire_548/build"
 ```
 
-Скрипт читает параметры из `<build>/modules/modules.vcxproj`, компилирует
-четыре файла модуля и запускает C++ тесты денежных границ, дробных цен стаков
-и случайных свойств предметов. Результаты и журнал находятся в `.validation`
-внутри модуля и исключены из Git. Docker/Ninja сборка не создаёт `.vcxproj`
-и не подходит для этого дополнительного скрипта.
-Эта проверка не линкует и не развёртывает `worldserver`.
+This reads modules/modules.vcxproj, compiles four module files and runs C++ tests
+for money limits, fractional stack prices and random properties. Logs/results go
+to the module's ignored .validation directory. Docker/Ninja does not generate
+.vcxproj and is unsupported by this optional script. It does not link/deploy worldserver.
 
-После сборки сервера проверьте в игре:
+After building, separately verify in game:
 
-1. С выключенными агентами `.ahbot status` показывает disabled, новых лотов нет.
-2. С тестовыми квотами seller создаёт предметы и корректные цены на нужном рынке.
-3. Покупка ботского лота игроком выдаёт предмет штатной почтой.
-4. После перезапуска лоты остаются; нет ошибок отсутствующего auctioneer GUID.
-5. Buyer перебивает ставку/выкупает дешёвый тестовый лот игрока, предыдущему
-   покупателю возвращаются деньги, продавец получает выручку.
-6. Reload с выключением агентов прекращает новые операции; существующие лоты
-   продолжают жить по правилам ядра. `rebuild` не трогает лоты других продавцов.
-7. При общем аукционе нет тройного заполнения одного рынка.
+1. Disabled agents show disabled in .ahbot status and create no auctions.
+2. Seller creates eligible items/prices on the configured market.
+3. Players buying bot auctions receive items through normal mail.
+4. Auctions survive restart without missing-auctioneer GUID errors.
+5. Buyer bids/buys eligible player auctions; refunds and seller proceeds are correct.
+6. Reload disabling agents stops new operations; existing auctions follow normal
+   core rules. rebuild leaves other sellers' auctions alone.
+7. Shared auctions are populated once, not three times.
 
-Проверка на живом сервере и БД необходима отдельно от компиляции.
+Live server/DB checks are separate from compilation.
 
-## Исправление 1.0.1
+## Version 1.0.1 fix
 
-Устранён вызов `Item::SetItemRandomProperties()` для предметов аукциона без
-владельца Player. В SkyFire этот inventory-метод вызывает `SetState()` и
-`AddToUpdateQueueOf(nullptr)`, приводя к assert. Модуль теперь заполняет поля
-случайных свойств/суффиксов только у новых, не сохранённых предметов без владельца;
-обычный `SaveToDB()` сохраняет их в той же транзакции, что и лот.
-Добавлен регрессионный тест: обычный предмет, три enchantment-слота свойства,
-пять слотов суффикса, сохранение ITEM_NEW и отсутствие очереди Player.
+Removed Item::SetItemRandomProperties() on auction items without a Player owner.
+In SkyFire that inventory method calls SetState()/AddToUpdateQueueOf(nullptr),
+causing an assertion. The module now fills random property/suffix fields only on
+new unsaved ownerless items; normal SaveToDB() persists them in the auction transaction.
+The regression test covers ordinary items, three property enchantment slots,
+five suffix slots, ITEM_NEW persistence and absence of a Player update queue.
 
-После обновления пересоберите worldserver. Миграция БД и изменение конфигурации
-не требуются. `AuctionHouseBot.Account` — ID аккаунта из `auth.account.id`,
-**не** GUID персонажа из `characters.guid`.
+Rebuild worldserver after updating. No DB migration or config change is needed.
+AuctionHouseBot.Account is auth.account.id, not characters.guid.

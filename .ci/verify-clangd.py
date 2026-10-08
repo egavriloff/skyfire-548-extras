@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLANGD_FILE = ROOT / ".clangd"
-SKYFIRE_ROOT = ROOT / ".skyfire" / "SkyFire_548"
+SKYFIRE_ROOT = ROOT / "externals" / "core" / "repo"
 
 
 def extract_include_paths() -> list[Path]:
@@ -88,7 +88,7 @@ def main() -> int:
         print(f"ERROR: SkyFire checkout not found:")
         print(f"  {relative(SKYFIRE_ROOT)}")
         print()
-        print("Expected local checkout in .skyfire/SkyFire_548")
+        print("Expected local checkout in externals/core/repo")
         return 1
 
     include_paths = extract_include_paths()

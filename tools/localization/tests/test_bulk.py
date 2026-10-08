@@ -28,13 +28,13 @@ class BulkExportTests(unittest.TestCase):
     def record(self, source, kind, key, fields):
         self.conn.execute("INSERT INTO records VALUES(?,?,?,?,?,?,?)", (source, kind, json.dumps(key), "ruRU", json.dumps(fields, ensure_ascii=False), f"{source}-locale.sql", 1))
 
-    def ready(self, kind="item", key=42, donors=("alexkulya", "loap")):
+    def ready(self, kind="item", key=42, donors=("source-a", "source-b")):
         identity = {"item": {"name": "Blade", "class": 2, "subclass": 7},
                     "gameobject": {"name": "Door", "type": 0},
                     "gossip_menu_option": {"optiontext": "Speak", "optionbroadcasttextid": 77}}[kind]
         text = {"item": {"name": "Клинок"}, "gameobject": {"name": "Дверь", "castbarcaption": "Открыть"},
                 "gossip_menu_option": {"optiontext": "Поговорить", "boxtext": "Подтвердить?"}}[kind]
-        for source in ("skyfire",) + donors:
+        for source in ("target",) + donors:
             self.entity(source, kind, key, identity)
         for source in donors:
             self.record(source, kind, key, text)
@@ -74,26 +74,26 @@ class BulkExportTests(unittest.TestCase):
 
     def test_conflict_skips_entire_locale_row_and_preserves_evidence(self):
         self.ready()
-        self.conn.execute("UPDATE records SET fields=? WHERE source='loap'", (json.dumps({"name": "Меч", "description": "Описание"}),))
+        self.conn.execute("UPDATE records SET fields=? WHERE source='source-b'", (json.dumps({"name": "Меч", "description": "Описание"}),))
         summary, report, path = self.export()
         self.assertEqual(summary["item"]["CONFLICT"], 1)
         self.assertEqual(summary["item"]["exported"], 0)
         entry = report["entries"][0]
         self.assertEqual(entry["entity_key"], 42)
-        self.assertEqual(entry["values"]["loap"]["name"], "Меч")
-        self.assertEqual(entry["provenance"]["alexkulya"]["file"], "alexkulya-locale.sql")
+        self.assertEqual(entry["values"]["source-b"]["name"], "Меч")
+        self.assertEqual(entry["provenance"]["source-a"]["file"], "source-a-locale.sql")
         self.assertNotIn("INSERT INTO", (path / "item-ruRU.sql").read_text(encoding="utf-8"))
 
     def test_identity_failure_skipped(self):
         self.ready()
-        self.conn.execute("UPDATE entities SET fields=? WHERE source='loap'", (json.dumps({"name": "Other Blade"}),))
+        self.conn.execute("UPDATE entities SET fields=? WHERE source='source-b'", (json.dumps({"name": "Other Blade"}),))
         summary, report, path = self.export()
         self.assertEqual(summary["item"]["identity_failed"], 1)
         self.assertEqual(summary["item"]["skipped"], 1)
-        self.assertEqual(report["entries"][0]["base_entities"]["loap"]["fields"]["name"], "Other Blade")
+        self.assertEqual(report["entries"][0]["base_entities"]["source-b"]["fields"]["name"], "Other Blade")
 
     def test_ambiguous_blank_identity_skipped(self):
-        self.ready(donors=("alexkulya",))
+        self.ready(donors=("source-a",))
         self.conn.execute("UPDATE entities SET fields=?", (json.dumps({"name": ""}),))
         summary, report, path = self.export()
         self.assertEqual(summary["item"]["identity_failed"], 1)
@@ -106,38 +106,38 @@ class BulkExportTests(unittest.TestCase):
         self.assertEqual(summary["item"]["exported"], 0)
 
     def test_safe_source_only_exported(self):
-        self.ready(donors=("alexkulya",))
+        self.ready(donors=("source-a",))
         summary, report, path = self.export()
         self.assertEqual(summary["item"]["SOURCE_ONLY"], 1)
         self.assertEqual(summary["item"]["exported"], 1)
 
     def test_source_only_without_donor_identity_skipped(self):
-        self.ready(donors=("alexkulya",))
-        self.conn.execute("DELETE FROM entities WHERE source='alexkulya'")
-        self.entity("loap", "item", 42, {"name": "Blade"})
+        self.ready(donors=("source-a",))
+        self.conn.execute("DELETE FROM entities WHERE source='source-a'")
+        self.entity("source-b", "item", 42, {"name": "Blade"})
         summary, report, path = self.export()
         self.assertEqual(summary["item"]["identity_failed"], 1)
         self.assertEqual(summary["item"]["exported"], 0)
 
     def test_missing_target_is_not_selected(self):
         self.ready()
-        self.record("alexkulya", "item", 999, {"name": "Нет в target"})
+        self.record("source-a", "item", 999, {"name": "Нет в target"})
         summary, report, path = self.export()
         self.assertEqual(summary["item"]["total_target_entities"], 1)
         self.assertNotIn("999", (path / "item-ruRU.sql").read_text(encoding="utf-8"))
 
     def test_existing_different_target_translation_skipped(self):
         self.ready()
-        self.record("skyfire", "item", 42, {"name": "Другой перевод"})
+        self.record("target", "item", 42, {"name": "Другой перевод"})
         summary, report, path = self.export()
         self.assertEqual(summary["item"]["CONFLICT"], 1)
         self.assertEqual(summary["item"]["exported"], 0)
-        self.assertEqual(report["entries"][0]["values"]["skyfire"]["name"], "Другой перевод")
+        self.assertEqual(report["entries"][0]["values"]["target"]["name"], "Другой перевод")
 
     def test_target_identical_and_no_candidates_reported(self):
         self.ready()
-        self.record("skyfire", "item", 42, {"name": "Клинок"})
-        self.entity("skyfire", "item", 99, {"name": "Other"})
+        self.record("target", "item", 42, {"name": "Клинок"})
+        self.entity("target", "item", 99, {"name": "Other"})
         summary, report, path = self.export()
         self.assertEqual(summary["item"]["TARGET_IDENTICAL"], 1)
         self.assertEqual(summary["item"]["MISSING"], 1)
@@ -145,7 +145,7 @@ class BulkExportTests(unittest.TestCase):
         self.assertEqual(summary["item"]["skipped"], 2)
 
     def test_unsupported_value_skipped(self):
-        self.ready(donors=("alexkulya",))
+        self.ready(donors=("source-a",))
         self.conn.execute("UPDATE records SET fields=?", (json.dumps({"name": {"invalid": "data"}}),))
         summary, report, path = self.export()
         self.assertEqual(summary["item"]["unsupported"], 1)
@@ -161,8 +161,8 @@ class BulkExportTests(unittest.TestCase):
         self.assertLess(sql.index("VALUES (2,"), sql.index("VALUES (10,"))
 
     def test_deterministic_json_report_and_numeric_order(self):
-        self.entity("skyfire", "item", 10, {"name": "Ten"})
-        self.entity("skyfire", "item", 2, {"name": "Two"})
+        self.entity("target", "item", 10, {"name": "Ten"})
+        self.entity("target", "item", 2, {"name": "Two"})
         _, report, first = self.export(directory="first")
         _, _, second = self.export(directory="second")
         self.assertEqual((first / "report-ruRU.json").read_bytes(), (second / "report-ruRU.json").read_bytes())
@@ -180,13 +180,13 @@ class BulkExportTests(unittest.TestCase):
         self.ready("gossip_menu_option", [7, 2])
         self.conn.commit()
         args = localize.parser().parse_args(["export-all", "--locale", "ruRU"])
-        with patch.object(localize, "INDEX", self.index), patch.object(localize, "PORTING", self.root), redirect_stdout(StringIO()):
+        with patch.object(localize, "INDEX", self.index), patch.object(localize, "WORKSPACE", self.root), redirect_stdout(StringIO()):
             self.assertEqual(localize.command_export_all(args), 0)
-        report = json.loads((self.root / "review/report-ruRU.json").read_text(encoding="utf-8"))
+        report = json.loads((self.root / "review/ruRU/report-ruRU.json").read_text(encoding="utf-8"))
         self.assertEqual(report["totals"]["exported"], 3)
         self.assertEqual(set(report["summary"]), set(localize.SPECS))
         for kind in localize.SPECS:
-            self.assertTrue((self.root / f"review/{kind}-ruRU.sql").exists())
+            self.assertTrue((self.root / f"review/ruRU/{kind}-ruRU.sql").exists())
 
 
 if __name__ == "__main__":

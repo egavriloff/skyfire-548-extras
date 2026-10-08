@@ -5,3 +5,6 @@
 docs
 build
 *.zip
+
+externals
+.tmp

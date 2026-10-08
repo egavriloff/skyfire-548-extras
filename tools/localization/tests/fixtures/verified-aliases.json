@@ -2,7 +2,7 @@
   "gameobject": {
     "57708": {
       "bases": {
-        "alexkulya": {
+        "source-a": {
           "row": {
             "entry": 57708,
             "type": 8,
@@ -55,9 +55,9 @@
             "scriptname": "",
             "verifiedbuild": 15595
           },
-          "file": ".porting/sources/alexkulya/db/2026_08_16_world.sql"
+          "file": "externals/references/source-a/db/2026_08_16_world.sql"
         },
-        "loap": {
+        "source-b": {
           "row": {
             "entry": 57708,
             "type": 8,
@@ -110,9 +110,9 @@
             "scriptname": "",
             "verifiedbuild": 15595
           },
-          "file": ".porting/sources/loap/db/world_548_20240722.sql"
+          "file": "externals/references/source-b/db/world_548_20240722.sql"
         },
-        "skyfire": {
+        "target": {
           "row": {
             "entry": 57708,
             "type": 8,
@@ -167,19 +167,19 @@
             "scriptname": "",
             "wdbverified": 15595
           },
-          "file": ".porting/sources/skyfire/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
+          "file": "externals/references/target/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
         }
       },
       "translations": {
-        "alexkulya": {
+        "source-a": {
           "castbarcaption": null,
           "name": "Фонарный столб"
         },
-        "loap": {
+        "source-b": {
           "castbarcaption": null,
           "name": "Фонарный столб"
         },
-        "skyfire": {
+        "target": {
           "castbarcaption": null,
           "name": null
         }
@@ -187,7 +187,7 @@
     },
     "170524": {
       "bases": {
-        "alexkulya": {
+        "source-a": {
           "row": {
             "entry": 170524,
             "type": 7,
@@ -240,9 +240,9 @@
             "scriptname": "",
             "verifiedbuild": 15595
           },
-          "file": ".porting/sources/alexkulya/db/2026_08_16_world.sql"
+          "file": "externals/references/source-a/db/2026_08_16_world.sql"
         },
-        "loap": {
+        "source-b": {
           "row": {
             "entry": 170524,
             "type": 7,
@@ -295,9 +295,9 @@
             "scriptname": "",
             "verifiedbuild": 15595
           },
-          "file": ".porting/sources/loap/db/world_548_20240722.sql"
+          "file": "externals/references/source-b/db/world_548_20240722.sql"
         },
-        "skyfire": {
+        "target": {
           "row": {
             "entry": 170524,
             "type": 7,
@@ -352,19 +352,19 @@
             "scriptname": "",
             "wdbverified": 15595
           },
-          "file": ".porting/sources/skyfire/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
+          "file": "externals/references/target/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
         }
       },
       "translations": {
-        "alexkulya": {
+        "source-a": {
           "castbarcaption": null,
           "name": "Скамья"
         },
-        "loap": {
+        "source-b": {
           "castbarcaption": null,
           "name": "Скамья"
         },
-        "skyfire": {
+        "target": {
           "castbarcaption": null,
           "name": null
         }
@@ -372,7 +372,7 @@
     },
     "3642": {
       "bases": {
-        "alexkulya": {
+        "source-a": {
           "row": {
             "entry": 3642,
             "type": 3,
@@ -425,9 +425,9 @@
             "scriptname": "",
             "verifiedbuild": 15595
           },
-          "file": ".porting/sources/alexkulya/db/2026_08_16_world.sql"
+          "file": "externals/references/source-a/db/2026_08_16_world.sql"
         },
-        "loap": {
+        "source-b": {
           "row": {
             "entry": 3642,
             "type": 3,
@@ -480,9 +480,9 @@
             "scriptname": "",
             "verifiedbuild": 15595
           },
-          "file": ".porting/sources/loap/db/world_548_20240722.sql"
+          "file": "externals/references/source-b/db/world_548_20240722.sql"
         },
-        "skyfire": {
+        "target": {
           "row": {
             "entry": 3642,
             "type": 3,
@@ -537,19 +537,19 @@
             "scriptname": "",
             "wdbverified": 15595
           },
-          "file": ".porting/sources/skyfire/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
+          "file": "externals/references/target/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
         }
       },
       "translations": {
-        "alexkulya": {
+        "source-a": {
           "castbarcaption": null,
           "name": "Добыча Колкара"
         },
-        "loap": {
+        "source-b": {
           "castbarcaption": null,
           "name": "Добыча Колкара"
         },
-        "skyfire": {
+        "target": {
           "castbarcaption": null,
           "name": null
         }
@@ -559,7 +559,7 @@
   "gossip_menu_option": {
     "[0, 1]": {
       "bases": {
-        "alexkulya": {
+        "source-a": {
           "row": {
             "menu_id": 0,
             "id": 1,
@@ -575,9 +575,9 @@
             "box_text": null,
             "box_text_female": null
           },
-          "file": ".porting/sources/alexkulya/db/2026_08_16_world.sql"
+          "file": "externals/references/source-a/db/2026_08_16_world.sql"
         },
-        "loap": {
+        "source-b": {
           "row": {
             "menuid": 0,
             "optionindex": 1,
@@ -588,9 +588,9 @@
             "optionnpcflag": 128,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/loap/db/world_548_20240722.sql"
+          "file": "externals/references/source-b/db/world_548_20240722.sql"
         },
-        "skyfire": {
+        "target": {
           "row": {
             "menuid": 0,
             "optionid": 1,
@@ -607,19 +607,19 @@
             "boxbroadcasttextid": 0,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/skyfire/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
+          "file": "externals/references/target/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
         }
       },
       "translations": {
-        "alexkulya": {
+        "source-a": {
           "boxtext": null,
           "optiontext": "Я хочу посмотреть на ваши товары."
         },
-        "loap": {
+        "source-b": {
           "boxtext": null,
           "optiontext": null
         },
-        "skyfire": {
+        "target": {
           "boxtext": null,
           "optiontext": null
         }
@@ -627,7 +627,7 @@
     },
     "[0, 3]": {
       "bases": {
-        "alexkulya": {
+        "source-a": {
           "row": {
             "menu_id": 0,
             "id": 3,
@@ -643,9 +643,9 @@
             "box_text": null,
             "box_text_female": null
           },
-          "file": ".porting/sources/alexkulya/db/2026_08_16_world.sql"
+          "file": "externals/references/source-a/db/2026_08_16_world.sql"
         },
-        "loap": {
+        "source-b": {
           "row": {
             "menuid": 0,
             "optionindex": 3,
@@ -656,9 +656,9 @@
             "optionnpcflag": 16,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/loap/db/world_548_20240722.sql"
+          "file": "externals/references/source-b/db/world_548_20240722.sql"
         },
-        "skyfire": {
+        "target": {
           "row": {
             "menuid": 0,
             "optionid": 3,
@@ -675,19 +675,19 @@
             "boxbroadcasttextid": 0,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/skyfire/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
+          "file": "externals/references/target/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
         }
       },
       "translations": {
-        "alexkulya": {
+        "source-a": {
           "boxtext": null,
           "optiontext": "Обучите меня."
         },
-        "loap": {
+        "source-b": {
           "boxtext": null,
           "optiontext": null
         },
-        "skyfire": {
+        "target": {
           "boxtext": null,
           "optiontext": null
         }
@@ -695,7 +695,7 @@
     },
     "[0, 9]": {
       "bases": {
-        "alexkulya": {
+        "source-a": {
           "row": {
             "menu_id": 0,
             "id": 9,
@@ -711,9 +711,9 @@
             "box_text": null,
             "box_text_female": null
           },
-          "file": ".porting/sources/alexkulya/db/2026_08_16_world.sql"
+          "file": "externals/references/source-a/db/2026_08_16_world.sql"
         },
-        "loap": {
+        "source-b": {
           "row": {
             "menuid": 0,
             "optionindex": 9,
@@ -724,9 +724,9 @@
             "optionnpcflag": 524288,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/loap/db/world_548_20240722.sql"
+          "file": "externals/references/source-b/db/world_548_20240722.sql"
         },
-        "skyfire": {
+        "target": {
           "row": {
             "menuid": 0,
             "optionid": 9,
@@ -743,19 +743,19 @@
             "boxbroadcasttextid": 0,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/skyfire/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
+          "file": "externals/references/target/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
         }
       },
       "translations": {
-        "alexkulya": {
+        "source-a": {
           "boxtext": null,
           "optiontext": "Я хочу нарисовать герб гильдии."
         },
-        "loap": {
+        "source-b": {
           "boxtext": null,
           "optiontext": null
         },
-        "skyfire": {
+        "target": {
           "boxtext": null,
           "optiontext": null
         }
@@ -763,7 +763,7 @@
     },
     "[125, 0]": {
       "bases": {
-        "alexkulya": {
+        "source-a": {
           "row": {
             "menu_id": 125,
             "id": 0,
@@ -779,9 +779,9 @@
             "box_text": null,
             "box_text_female": null
           },
-          "file": ".porting/sources/alexkulya/db/2026_08_16_world.sql"
+          "file": "externals/references/source-a/db/2026_08_16_world.sql"
         },
-        "loap": {
+        "source-b": {
           "row": {
             "menuid": 125,
             "optionindex": 0,
@@ -792,9 +792,9 @@
             "optionnpcflag": 1,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/loap/db/world_548_20240722.sql"
+          "file": "externals/references/source-b/db/world_548_20240722.sql"
         },
-        "skyfire": {
+        "target": {
           "row": {
             "menuid": 125,
             "optionid": 0,
@@ -811,19 +811,19 @@
             "boxbroadcasttextid": 0,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/skyfire/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
+          "file": "externals/references/target/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
         }
       },
       "translations": {
-        "alexkulya": {
+        "source-a": {
           "boxtext": null,
           "optiontext": "У тебя есть кое-что нужное мне, Астор. И сейчас я это кое-что заберу."
         },
-        "loap": {
+        "source-b": {
           "boxtext": null,
           "optiontext": null
         },
-        "skyfire": {
+        "target": {
           "boxtext": null,
           "optiontext": null
         }
@@ -831,7 +831,7 @@
     },
     "[126, 0]": {
       "bases": {
-        "alexkulya": {
+        "source-a": {
           "row": {
             "menu_id": 126,
             "id": 0,
@@ -847,9 +847,9 @@
             "box_text": null,
             "box_text_female": null
           },
-          "file": ".porting/sources/alexkulya/db/2026_08_16_world.sql"
+          "file": "externals/references/source-a/db/2026_08_16_world.sql"
         },
-        "loap": {
+        "source-b": {
           "row": {
             "menuid": 126,
             "optionindex": 0,
@@ -860,9 +860,9 @@
             "optionnpcflag": 1,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/loap/db/world_548_20240722.sql"
+          "file": "externals/references/source-b/db/world_548_20240722.sql"
         },
-        "skyfire": {
+        "target": {
           "row": {
             "menuid": 126,
             "optionid": 0,
@@ -879,19 +879,19 @@
             "boxbroadcasttextid": 0,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/skyfire/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
+          "file": "externals/references/target/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
         }
       },
       "translations": {
-        "alexkulya": {
+        "source-a": {
           "boxtext": null,
           "optiontext": "Ты Астор Харден, верно?"
         },
-        "loap": {
+        "source-b": {
           "boxtext": null,
           "optiontext": null
         },
-        "skyfire": {
+        "target": {
           "boxtext": null,
           "optiontext": null
         }
@@ -899,7 +899,7 @@
     },
     "[0, 12]": {
       "bases": {
-        "alexkulya": {
+        "source-a": {
           "row": {
             "menu_id": 0,
             "id": 12,
@@ -915,9 +915,9 @@
             "box_text": null,
             "box_text_female": null
           },
-          "file": ".porting/sources/alexkulya/db/2026_08_16_world.sql"
+          "file": "externals/references/source-a/db/2026_08_16_world.sql"
         },
-        "loap": {
+        "source-b": {
           "row": {
             "menuid": 0,
             "optionindex": 12,
@@ -928,9 +928,9 @@
             "optionnpcflag": 4194304,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/loap/db/world_548_20240722.sql"
+          "file": "externals/references/source-b/db/world_548_20240722.sql"
         },
-        "skyfire": {
+        "target": {
           "row": {
             "menuid": 0,
             "optionid": 12,
@@ -947,19 +947,19 @@
             "boxbroadcasttextid": 0,
             "verifiedbuild": 0
           },
-          "file": ".porting/sources/skyfire/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
+          "file": "externals/references/target/db/SFDB_full_548_26.002_2026_008_18_Release.sql"
         }
       },
       "translations": {
-        "alexkulya": {
+        "source-a": {
           "boxtext": null,
           "optiontext": "Я хочу поставить питомца в это стойло."
         },
-        "loap": {
+        "source-b": {
           "boxtext": null,
           "optiontext": null
         },
-        "skyfire": {
+        "target": {
           "boxtext": null,
           "optiontext": null
         }
