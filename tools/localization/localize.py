@@ -1716,14 +1716,19 @@ def identity_ok(conn: sqlite3.Connection, kind: str, entity: str, sources: tuple
 
 
 def translation_comparison_text(value: str, locale: str) -> str:
-    """Compare spacing only; retain original values for provenance and export."""
+    """Compare spacing and narrow glyph variants; never rewrite source values."""
     if locale != 'ruRU':
         return value
-    protected = re.compile(r'(\$g[^;]*;|\|\d[^()]*\([^)]*\)|\$[A-Za-z]|\|c[0-9A-Fa-f]{8}|\|r)')
+    protected = re.compile(r'(\$[gG][^;]*;|\|\d[^()]*\([^)]*\)|\$[A-Za-z]|\|H[^|]*\|h[^|]*\|h|\|T[^|]*\|t|\|A[^|]*\|a|\|c[0-9A-Fa-f]{8}|\|r)')
     parts = protected.split(value)
-    return ''.join(part if i % 2 else re.sub(r'[^\S\r\n\v\f\u0085\u2028\u2029]+', ' ',
-                                           part.replace('\r\n', '\n'))
-                   for i, part in enumerate(parts)).strip()
+    result = []
+    for i, part in enumerate(parts):
+        if not i % 2:
+            part = re.sub(r'[^\S\r\n\v\f\u0085\u2028\u2029]+', ' ', part.replace('\r\n', '\n'))
+            part = re.sub(r'(?<![\d.…])…(?![\d.…])', '...', part)
+            part = re.sub(r"(?<=[А-Яа-яЁё])’(?=[А-Яа-яЁё])", "'", part)
+        result.append(part)
+    return ''.join(result).strip()
 
 
 def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str, field: str, *, indexed_provenance: bool = False,

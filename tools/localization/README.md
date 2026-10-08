@@ -92,8 +92,11 @@ NULL/empty and whitespace representation differences. Placeholder spelling/case
 and gender/morphology expressions remain exact, as do words, names, directions and
 structural method/type/minlevel/zoneorsort. Ordinary ruRU translation comparison
 ignores outer whitespace, repeated horizontal whitespace and CRLF/LF differences.
-Internal paragraph boundaries, placeholders and morphology expressions remain
-exact. Punctuation, case, e/yo and transliteration are never normalized. Export
+It also equates Unicode ellipsis with exactly three dots away from adjacent
+digits/dots, and a typographic apostrophe with an ASCII apostrophe only between
+Russian Cyrillic letters. Internal paragraph boundaries, placeholders, morphology
+expressions and protected link/texture markup remain exact. Other punctuation,
+quotes, hyphens, case, e/yo and transliteration are never normalized. Export
 retains the original value from the first source in stable source-ID order and
 all provenance; existing target translations are preserved. Other locales and
 the exact opt-in exception proofs retain their existing comparison behavior.
@@ -109,7 +112,7 @@ Additional sources never cause evidence to be dropped silently.
 
 --allow-verified-aliases enables only fixed ruRU gameobjects 57708/170524 and gossip
 0,1 / 0,3 / 0,9 / 125,0 / 126,0. Gameobject 3642 and gossip 0,12 remain excluded.
-There is no punctuation/whitespace normalization. Exact keys/patterns, consistent
+Alias proof does not normalize punctuation or whitespace. Exact keys/patterns, consistent
 structure, broadcast evidence, agreed translations and empty target locale remain
 mandatory. Explicitly assign the two required local evidence roles
 in externals/references/<source-id>/source.json:
