@@ -1732,7 +1732,8 @@ def translation_comparison_text(value: str, locale: str) -> str:
 
 
 def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str, field: str, *, indexed_provenance: bool = False,
-                  identity_sources: tuple[str, ...] | None = None, invalid_evidence: list | None = None) -> tuple[str, dict[str, object]]:
+                  identity_sources: tuple[str, ...] | None = None, invalid_evidence: list | None = None,
+                  _allow_english_fallback: bool = True) -> tuple[str, dict[str, object]]:
     if locale not in LOCALES:
         return "UNSUPPORTED", {"reason": "unknown locale"}
     identity, reason = identity_ok(conn, kind, entity, identity_sources)
@@ -1780,6 +1781,11 @@ def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         details['invalid_values'] = invalid
     compared = {source: translation_comparison_text(value, locale) for source, value in upstream.items()}
     if len(set(compared.values())) > 1:
+        if _allow_english_fallback and locale == 'ruRU' and len(upstream) >= 3:
+            resolved = confirmed_english_fallback_comparisons(conn, kind, entity, locale, indexed_provenance=indexed_provenance)
+            if resolved:
+                detail = resolved[field]
+                return detail['status'], {k: v for k, v in detail.items() if k != 'status'}
         return "CONFLICT", details
     if not upstream:
         if invalid:
@@ -1791,6 +1797,84 @@ def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
     if len(upstream) >= 2:
         return "MATCH", details
     return "SOURCE_ONLY", details
+
+
+def english_field_evidence(conn: sqlite3.Connection, source: str, kind: str, entity: str, field: str) -> dict | None:
+    """Read the actual base field, including split quest text and objectives."""
+    part, key, column = kind, entity, field
+    if kind == 'quest' and field.startswith('objective:'):
+        part, key, column = 'quest_objective', field.split(':', 1)[1], 'description'
+    elif kind == 'quest' and field in ('offerrewardtext', 'requestitemstext') and source != 'target':
+        part = 'quest_offer_reward' if field == 'offerrewardtext' else 'quest_request_items'
+    row = conn.execute('SELECT fields,file FROM entities WHERE source=? AND kind=? AND entity=?', (source, part, key)).fetchone()
+    if not row and part != kind and part != 'quest_objective':
+        part, key = kind, entity
+        row = conn.execute('SELECT fields,file FROM entities WHERE source=? AND kind=? AND entity=?', (source, part, key)).fetchone()
+    if not row:
+        return None
+    fields = json.loads(row[0])
+    value = fields.get(column)
+    if fields.get('_evidence_incomplete') or not isinstance(value, str) or not value.strip():
+        return None
+    if part == 'quest_objective' and fields.get('questid') != json.loads(entity):
+        return None
+    return {'value': value, 'file': row[1], 'table': ALL_SPECS[part]['target_entity'],
+            'field': column, 'entity_key': json.loads(key)}
+
+
+def confirmed_english_fallback_comparisons(conn: sqlite3.Connection, kind: str, entity: str, locale: str, *,
+                                          indexed_provenance: bool = False, comparisons: dict | None = None) -> dict | None:
+    """Exclude confirmed reference fallback only if the whole entity is safe."""
+    if locale != 'ruRU' or not identity_ok(conn, kind, entity)[0]:
+        return None
+    for source in reference_sources(conn):
+        if get_record(conn, source, kind, entity, locale) and base_entity(conn, source, kind, entity) is None:
+            return None
+    if comparisons is None:
+        comparisons = {}
+        for field in text_fields_for(conn, kind, entity):
+            status, detail = compare_value(conn, kind, entity, locale, field, indexed_provenance=indexed_provenance,
+                                           _allow_english_fallback=False)
+            comparisons[field] = {'status': status, **detail}
+    if any(d['status'] == 'UNSUPPORTED' for d in comparisons.values()):
+        return None
+    resolved = dict(comparisons)
+    rejected_any = False
+    for field, detail in comparisons.items():
+        if detail['status'] != 'CONFLICT':
+            continue
+        upstream = detail.get('upstream', {})
+        if len(upstream) < 3:
+            return None
+        target_base = english_field_evidence(conn, 'target', kind, entity, field)
+        if not target_base:
+            return None
+        target_text = translation_comparison_text(target_base['value'], locale)
+        bases = {source: english_field_evidence(conn, source, kind, entity, field) for source in upstream}
+        if any(not base or translation_comparison_text(base['value'], locale) != target_text for base in bases.values()):
+            return None
+        rejected = {s: v for s, v in upstream.items() if translation_comparison_text(v, locale) == target_text}
+        accepted = {s: v for s, v in upstream.items() if s not in rejected}
+        # This content guard does not identify English. Fallback proof above is
+        # exclusively same-field base equality; near matches are never accepted.
+        if not rejected or len(accepted) < 2 or not all(re.search('[А-Яа-яЁё]', v) for v in accepted.values()):
+            return None
+        accepted_texts = {translation_comparison_text(v, locale) for v in accepted.values()}
+        if len(accepted_texts) != 1:
+            return None
+        target_value = detail.get('target')
+        if target_value not in (None, '') and translation_comparison_text(str(target_value), locale) not in accepted_texts:
+            return None
+        rejections = [{'source': s, 'field': field, 'value': v, 'reason': 'confirmed_english_base_fallback',
+                       'provenance': detail.get('provenance', {}).get(s, {}), 'source_english_base': bases[s],
+                       'target_english_base': target_base, 'confirmed_donors': {a: {'value': text, 'english_base': bases[a],
+                       'provenance': detail.get('provenance', {}).get(a, {})} for a, text in accepted.items()}}
+                      for s, v in rejected.items()]
+        resolved[field] = {**detail, 'status': 'TARGET_IDENTICAL' if target_value not in (None, '') else 'MATCH',
+                           'upstream': accepted, 'provenance': {s: detail.get('provenance', {}).get(s, {}) for s in accepted},
+                           'original_upstream': upstream, 'rejected_english_fallbacks': rejections}
+        rejected_any = True
+    return resolved if rejected_any else None
 
 
 def values_for_kind(conn: sqlite3.Connection, kind: str, entity: str, locales: list[str] | None = None) -> list[tuple[str, str, str, dict]]:
@@ -2161,7 +2245,8 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
             # The index does not store upstream revisions. Do not let live Git
             # HEAD alter output from an otherwise unchanged index.
             status, detail = compare_value(conn, kind, entity, locale, field, indexed_provenance=True,
-                                          identity_sources=tuple(alias["identity_sources"]) if alias else (proof["confirmed_upstream"],) if proof else reference_sources(conn), invalid_evidence=invalid_evidence)
+                                          identity_sources=tuple(alias["identity_sources"]) if alias else (proof["confirmed_upstream"],) if proof else reference_sources(conn), invalid_evidence=invalid_evidence,
+                                          _allow_english_fallback=False)
             if alias and status in ("MATCH", "SOURCE_ONLY"):
                 status = "VERIFIED_ALIAS"
             if proof and status == "MATCH":
@@ -2171,6 +2256,9 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         if any(value not in (None, "") and not isinstance(value, str) for value in (values[source][field] for source in values)):
             status, detail = "UNSUPPORTED", {"reason": "non-text localization value"}
         comparisons[field] = {"status": status, **detail}
+    if identity and valid_key and not proof and not alias and any(d['status'] == 'CONFLICT' and len(d.get('upstream', {})) >= 3 for d in comparisons.values()):
+        comparisons = confirmed_english_fallback_comparisons(conn, kind, entity, locale, indexed_provenance=True,
+                                                             comparisons=comparisons) or comparisons
     statuses = {value["status"] for value in comparisons.values()}
     sql = []
     if "UNSUPPORTED" in statuses:
@@ -2212,11 +2300,14 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
     invalid = invalid_evidence
     if invalid:
         entry['invalid_values'] = invalid
+    rejections = [rejection for detail in comparisons.values() for rejection in detail.get('rejected_english_fallbacks', [])]
+    if rejections:
+        entry['rejected_english_fallbacks'] = rejections
     if proof:
         entry["single_identity"] = proof
     if alias:
         entry["verified_alias"] = alias
-    if not sql or proof or alias:
+    if not sql or proof or alias or rejections:
         entry["base_entities"] = {}
         for source in (*reference_sources(conn), "target"):
             row = conn.execute("SELECT fields,file FROM entities WHERE source=? AND kind=? AND entity=?", (source, kind, entity)).fetchone()
@@ -2267,7 +2358,7 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                             sql_file.write("\n".join(statements) + "\n")
                         else:
                             counts["skipped"] += 1
-                        if not statements or entry.get('invalid_values') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
+                        if not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
                             if not first_entry:
                                 report.write(",\n")
                             first_entry = False

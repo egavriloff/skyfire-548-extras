@@ -105,6 +105,17 @@ their original value and provenance in invalid_values and emits warnings. Valid
 donors may still supply a translation; invalid-only evidence is UNSUPPORTED.
 Bulk reports retain invalid evidence even for otherwise exportable entities.
 
+Confirmed English fallback is excluded from ruRU reference evidence only when
+the value equals its own and target base field under the established representation
+comparison. At least two other donors must agree, have matching target base-field
+evidence, and pass all identity/objective checks. An explicit Cyrillic-content
+guard on their values prevents technical-label consensus; it does not identify
+English fallback. Near matches never qualify. Any remaining entity conflict or
+unsupported field cancels the exclusion. Nonempty target text is preserved.
+Reports retain exported entries with rejected English values, source/base proof
+and provenance. SQL uses the original accepted donor text. No source IDs have
+special behavior, and the existing opt-in exception proofs are unchanged.
+
 --allow-single-identity enables item SAFE_SINGLE_IDENTITY only with exactly two
 references, exactly one confirmed name, agreed localization, matching mandatory
 class/subclass and all indexed structural fields. Default: report and skip.
