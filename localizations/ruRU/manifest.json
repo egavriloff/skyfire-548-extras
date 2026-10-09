@@ -1,0 +1,133 @@
+{
+  "entities": {
+    "creature": {
+      "exception_flags_preserved": true,
+      "files": {
+        "creature.sql": "7f40d6c24ff3f0d7bc5fb9b8abb8de5689d60672dfcbe71262fb86101517cc88"
+      },
+      "review_bundle_sha256": "35ee21bf4faa94a285cf929ad14bde4ee6654e980a2a8d1ee0d772bea1c48791",
+      "review_report_sha256": "9f6f2abb3692f4dfef0f6b68bfeed31fbb8145c1f79f1ebe21f6cd006aa1285e",
+      "skipped_acknowledged": true,
+      "summary": {
+        "CONFLICT": 3872,
+        "MATCH": 46673,
+        "MISSING": 173,
+        "SAFE_SINGLE_IDENTITY": 0,
+        "SOURCE_ONLY": 315,
+        "TARGET_IDENTICAL": 0,
+        "UNSUPPORTED": 6147,
+        "VERIFIED_ALIAS": 0,
+        "candidates_found": 57007,
+        "exported": 46988,
+        "identity_failed": 6147,
+        "skipped": 10192,
+        "total_target_entities": 57180,
+        "unsupported": 6147
+      }
+    },
+    "gameobject": {
+      "exception_flags_preserved": true,
+      "files": {
+        "gameobject.sql": "31a0c8a487d11f25f35dcd44ca0e19545aa8f3ee6be1aa501e15f36b104b31e8"
+      },
+      "review_bundle_sha256": "35ee21bf4faa94a285cf929ad14bde4ee6654e980a2a8d1ee0d772bea1c48791",
+      "review_report_sha256": "9f6f2abb3692f4dfef0f6b68bfeed31fbb8145c1f79f1ebe21f6cd006aa1285e",
+      "skipped_acknowledged": true,
+      "summary": {
+        "CONFLICT": 1258,
+        "MATCH": 22834,
+        "MISSING": 698,
+        "SAFE_SINGLE_IDENTITY": 0,
+        "SOURCE_ONLY": 461,
+        "TARGET_IDENTICAL": 0,
+        "UNSUPPORTED": 3528,
+        "VERIFIED_ALIAS": 2,
+        "candidates_found": 28083,
+        "exported": 23295,
+        "identity_failed": 3528,
+        "skipped": 5486,
+        "total_target_entities": 28781,
+        "unsupported": 3528
+      }
+    },
+    "gossip_menu_option": {
+      "exception_flags_preserved": true,
+      "files": {
+        "gossip_menu_option.sql": "35e7a1ba3436a165ce480a401a243c530e11293ce5e42f209a42808619e17f84"
+      },
+      "review_bundle_sha256": "35ee21bf4faa94a285cf929ad14bde4ee6654e980a2a8d1ee0d772bea1c48791",
+      "review_report_sha256": "9f6f2abb3692f4dfef0f6b68bfeed31fbb8145c1f79f1ebe21f6cd006aa1285e",
+      "skipped_acknowledged": true,
+      "summary": {
+        "CONFLICT": 0,
+        "MATCH": 2418,
+        "MISSING": 60,
+        "SAFE_SINGLE_IDENTITY": 0,
+        "SOURCE_ONLY": 412,
+        "TARGET_IDENTICAL": 0,
+        "UNSUPPORTED": 2056,
+        "VERIFIED_ALIAS": 5,
+        "candidates_found": 4891,
+        "exported": 2830,
+        "identity_failed": 2056,
+        "skipped": 2121,
+        "total_target_entities": 4951,
+        "unsupported": 2056
+      }
+    },
+    "item": {
+      "exception_flags_preserved": true,
+      "files": {
+        "item.sql": "87494d3802517189ca618bfee6d225fdad8a9725ba05ee133aa669981e638b46"
+      },
+      "review_bundle_sha256": "35ee21bf4faa94a285cf929ad14bde4ee6654e980a2a8d1ee0d772bea1c48791",
+      "review_report_sha256": "9f6f2abb3692f4dfef0f6b68bfeed31fbb8145c1f79f1ebe21f6cd006aa1285e",
+      "skipped_acknowledged": true,
+      "summary": {
+        "CONFLICT": 2038,
+        "MATCH": 55535,
+        "MISSING": 5,
+        "SAFE_SINGLE_IDENTITY": 0,
+        "SOURCE_ONLY": 13878,
+        "TARGET_IDENTICAL": 0,
+        "UNSUPPORTED": 799,
+        "VERIFIED_ALIAS": 0,
+        "candidates_found": 72250,
+        "exported": 69413,
+        "identity_failed": 799,
+        "skipped": 2842,
+        "total_target_entities": 72255,
+        "unsupported": 799
+      }
+    },
+    "quest": {
+      "exception_flags_preserved": true,
+      "files": {
+        "quest.sql": "b98abcc18c94341306b5fe51c9b9b58705d5ab3b884fdb7dd5d9913911298a19",
+        "quest_objective.sql": "3e8886b4e0b9ecb7b88f953b74919937f27a56d9cf28ba12fdd6d71eff02c3db"
+      },
+      "review_bundle_sha256": "35ee21bf4faa94a285cf929ad14bde4ee6654e980a2a8d1ee0d772bea1c48791",
+      "review_report_sha256": "9f6f2abb3692f4dfef0f6b68bfeed31fbb8145c1f79f1ebe21f6cd006aa1285e",
+      "skipped_acknowledged": true,
+      "summary": {
+        "CONFLICT": 5421,
+        "MATCH": 8579,
+        "MISSING": 6,
+        "SAFE_SINGLE_IDENTITY": 0,
+        "SOURCE_ONLY": 561,
+        "TARGET_IDENTICAL": 0,
+        "UNSUPPORTED": 3367,
+        "VERIFIED_ALIAS": 0,
+        "candidates_found": 17928,
+        "exported": 9140,
+        "identity_failed": 3310,
+        "skipped": 8794,
+        "total_target_entities": 17934,
+        "unsupported": 3367
+      }
+    }
+  },
+  "locale": "ruRU",
+  "target": "SkyFire 5.4.8 World DB",
+  "version": 1
+}
