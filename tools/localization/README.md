@@ -94,8 +94,13 @@ remain unchanged. Provenance preserves the actual input table.
 
 Creature identity uses English name and strict type/unit_class/family/rank; base
 subname is evidence only. Quest English title/details/objectives identity permits
-NULL/empty and whitespace representation differences. Placeholder spelling/case
-and gender/morphology expressions remain exact, as do words, names, directions and
+NULL/empty and whitespace representation differences. Only English details identity
+also equates standalone, unescaped $N/$n name tokens: both refer to the player,
+but $N displays the name in uppercase. Escaped dollars and longer token-like
+expressions remain exact. This rule never changes stored/source text or SQL and
+never applies to ruRU comparison, other fields, or objective descriptions.
+Other placeholder spelling/case ($C/$c, $R/$r, $B/$b) and gender/morphology
+expressions remain exact, as do words, names, directions and
 structural method/type/minlevel/zoneorsort. Ordinary ruRU translation comparison
 ignores outer whitespace, repeated horizontal whitespace and CRLF/LF differences.
 It also equates Unicode ellipsis with exactly three dots away from adjacent

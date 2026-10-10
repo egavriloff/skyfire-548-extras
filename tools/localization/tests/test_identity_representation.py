@@ -40,10 +40,82 @@ class IdentityRepresentationTests(unittest.TestCase):
         del source['details']
         self.assertFalse(l.identities_match('quest', source, self.quest))
 
-    def test_placeholder_case_and_gender_contents_remain_strict(self):
-        self.assertFalse(l.identities_match('quest', {**self.quest, 'details': self.quest['details'].replace('$N', '$n')}, self.quest))
+    def test_other_placeholder_case_and_gender_contents_remain_strict(self):
         self.assertNotEqual(l.quest_identity_text('$gGood  sir:Good lady;'), l.quest_identity_text('$gGood sir:Good lady;'))
         self.assertNotEqual(l.quest_identity_text('$B$B'), l.quest_identity_text('$b$b'))
+
+    def test_details_name_token_case_is_identity_equivalent(self):
+        self.assertTrue(l.identities_match('quest', {**self.quest, 'details': self.quest['details'].replace('$N', '$n')}, self.quest))
+        self.assertNotEqual(l.quest_identity_text('$N'), l.quest_identity_text('$n'))
+
+    def test_multiple_details_name_tokens(self):
+        target = {**self.quest, 'details': '$N, help $n. Thank you, $N!'}
+        source = {**self.quest, 'details': '$n, help $N. Thank you, $n!'}
+        self.assertTrue(l.identities_match('quest', source, target))
+        self.assertTrue(l.identities_match('quest', target, source))
+
+    def test_details_name_case_does_not_mask_other_text_differences(self):
+        target = {**self.quest, 'details': 'Go east, $N.'}
+        for text in ('Go west, $n.', 'Go East, $n.', 'Go east, $n!', 'Go east, $n. Please hurry.'):
+            with self.subTest(text=text):
+                self.assertFalse(l.identities_match('quest', {**self.quest, 'details': text}, target))
+
+    def test_other_details_tokens_remain_strict(self):
+        for token in ('C', 'R', 'B'):
+            with self.subTest(token=token):
+                target = {**self.quest, 'details': '$N, test $' + token + '.'}
+                source = {**self.quest, 'details': '$n, test $' + token.lower() + '.'}
+                self.assertFalse(l.identities_match('quest', source, target))
+
+    def test_name_token_case_is_not_normalized_in_other_fields(self):
+        for field in ('title', 'objectives'):
+            with self.subTest(field=field):
+                target = {**self.quest, field: 'Help $N.'}
+                source = {**self.quest, field: 'Help $n.'}
+                self.assertFalse(l.identities_match('quest', source, target))
+
+    def test_escaped_and_longer_details_tokens_remain_strict(self):
+        for text in (r'Hello $$N.', r'Hello \$N.', 'Hello $Name.', 'Hello $N123.', 'Hello $N_suffix.'):
+            with self.subTest(text=text):
+                target = {**self.quest, 'details': text}
+                source = {**self.quest, 'details': text.replace('$N', '$n')}
+                self.assertFalse(l.identities_match('quest', source, target))
+
+    def test_name_token_inside_protected_expression_remains_exact(self):
+        for text in ('$gSir $N:Lady $N;', '$GSir $N:Lady $N;', '|1(Name $N)'):
+            with self.subTest(text=text):
+                self.assertFalse(l.identities_match('quest', {**self.quest, 'details': text.replace('$N', '$n')}, {**self.quest, 'details': text}))
+
+    def test_details_name_rule_keeps_structural_and_objective_checks_strict(self):
+        for field in ('method', 'type', 'minlevel', 'zoneorsort'):
+            self.assertFalse(l.identities_match('quest', {**self.quest, 'details': self.quest['details'].replace('$N', '$n'), field: 99}, self.quest))
+        for source, description in (('target', 'Help $N.'), ('source-a', 'Help $n.')):
+            l.persist_entity(self.conn, source, 'quest_objective', {'id': 91, 'questid': 42, 'type': 0, 'objectid': 77, 'amount': 1, 'flags': 0, 'description': description}, 'base.sql', 20)
+        self.assertFalse(l.objective_identity_ok(self.conn, '91', 'source-a'))
+
+    def test_ruRU_name_token_case_stays_conflict_without_mutation(self):
+        for source in ('target', 'source-a', 'custom-reference-42'):
+            details = self.quest['details'] if source == 'target' else self.quest['details'].replace('$N', '$n')
+            l.persist_entity(self.conn, source, 'quest', {'id': 42, **self.quest, 'details': details}, source + '-base.sql', 20)
+        for source, text in (('source-a', 'Спасибо, $N.'), ('custom-reference-42', 'Спасибо, $n.')):
+            l.persist_locale(self.conn, source, 'quest', '42', 'ruRU', {'title': 'Помощь', 'details': text}, source + '-locale.sql', 20)
+        before = list(self.conn.execute('SELECT * FROM entities ORDER BY source,kind,entity')), list(self.conn.execute('SELECT * FROM records ORDER BY source,kind,entity,locale'))
+        self.assertTrue(l.identity_ok(self.conn, 'quest', '42')[0])
+        status, detail = l.compare_value(self.conn, 'quest', '42', 'ruRU', 'details')
+        self.assertEqual(status, 'CONFLICT')
+        self.assertEqual(detail['upstream']['source-a'], 'Спасибо, $N.')
+        self.assertEqual(detail['provenance']['source-a']['file'], 'source-a-locale.sql')
+        sql = '\n'.join(l.export_rows(self.conn, 'quest', '42', ['ruRU']))
+        self.assertIn('`title_loc8`', sql)
+        self.assertNotIn('`details_loc8`', sql)
+        self.assertEqual(before, (list(self.conn.execute('SELECT * FROM entities ORDER BY source,kind,entity')), list(self.conn.execute('SELECT * FROM records ORDER BY source,kind,entity,locale'))))
+        l.persist_locale(self.conn, 'source-a', 'quest', '42', 'ruRU', {'title': 'Помощь', 'details': 'Спасибо, $n.'}, 'source-a-locale.sql', 20)
+        updated = list(self.conn.execute('SELECT * FROM entities ORDER BY source,kind,entity')), list(self.conn.execute('SELECT * FROM records ORDER BY source,kind,entity,locale'))
+        sql = '\n'.join(l.export_rows(self.conn, 'quest', '42', ['ruRU']))
+        self.assertIn('Спасибо, $n.', sql)
+        self.assertNotIn('Спасибо, $N.', sql)
+        self.assertEqual(updated, (list(self.conn.execute('SELECT * FROM entities ORDER BY source,kind,entity')), list(self.conn.execute('SELECT * FROM records ORDER BY source,kind,entity,locale'))))
+        self.assertEqual(before[0], updated[0])
 
     def test_words_directions_names_and_text_case_remain_strict(self):
         for field, value in (('title', 'Help the Guard'), ('details', 'Please go east.'), ('objectives', 'Help the captain.')):

@@ -1660,14 +1660,21 @@ def norm_identity(kind: str, fields: dict) -> tuple:
     return ("name-type", " ".join(str(fields.get("name") or "").split()).casefold(), str(fields.get("type")))
 
 
-def quest_identity_text(value):
+def quest_identity_text(value, *, field: str | None = None):
     if value is None:
         return ''
     if not isinstance(value, str):
         return None
     protected = re.compile(r'(\$g[^;]*;|\|\d[^()]*\([^)]*\)|\$[A-Za-z])')
     parts = protected.split(value)
-    return ''.join(part if i % 2 else re.sub(r'\s+', ' ', part) for i, part in enumerate(parts)).strip()
+    text = ''.join(part if i % 2 else re.sub(r'\s+', ' ', part) for i, part in enumerate(parts)).strip()
+    if field == 'details':
+        # Name tokens have the same referent; only their display case differs.
+        # Keep escaped dollars and longer token-like expressions exact.
+        parts = re.split(r'(\$[gG][^;]*;|\|\d[^()]*\([^)]*\))', text)
+        text = ''.join(part if i % 2 else re.sub(r'(?<![$\\])\$N(?![A-Za-z0-9_])', '$n', part)
+                       for i, part in enumerate(parts))
+    return text
 
 
 def identities_match(kind: str, source: dict, target: dict) -> bool:
@@ -1679,7 +1686,7 @@ def identities_match(kind: str, source: dict, target: dict) -> bool:
                     and str(source.get(name) or '').strip() and str(target.get(name) or '').strip()
                     and not source.get('_evidence_incomplete') and not target.get('_evidence_incomplete')
                     and all(field in source and field in target and
-                            (quest_identity_text(source[field]) is not None and quest_identity_text(source[field]) == quest_identity_text(target[field])
+                            (quest_identity_text(source[field], field=field) is not None and quest_identity_text(source[field], field=field) == quest_identity_text(target[field], field=field)
                              if kind == 'quest' and field in ('title', 'details', 'objectives') else source[field] == target[field]) for field in required)
                     and all(isinstance(value, int) and not isinstance(value, bool) for value in
                             (source.get('type' if kind == 'creature' else 'minlevel'), target.get('type' if kind == 'creature' else 'minlevel')))
