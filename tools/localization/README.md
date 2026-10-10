@@ -43,8 +43,14 @@ python -m unittest discover -s tools/localization/tests -v
 All discovered references participate; a directory name is not trust evidence.
 Every donor needs base identity, not just a numeric ID. MATCH means two or more
 available values agree; SOURCE_ONLY means one donor supplies a value. Other statuses:
-TARGET_IDENTICAL, CONFLICT, MISSING, UNSUPPORTED. Any conflict/unsupported field
-blocks the whole bulk entity/locale. SQL fills only empty target translations.
+TARGET_IDENTICAL, CONFLICT, MISSING, UNSUPPORTED. Quest export is field-level:
+quest identity must pass globally, then only MATCH/SOURCE_ONLY fields are written.
+Conflicting, unsupported and nonempty target fields are omitted, not cleared.
+PARTIAL marks exported quests with blocked fields. Reports retain every quest's
+field status, original values, provenance, exported_fields and blocked_fields;
+summary field counters distinguish quest-row fields from objective descriptions.
+Objective descriptions keep their own identity checks and separate target table.
+Other bulk entity policies remain unchanged. SQL fills only empty target translations.
 enUS remains in base columns. Locale indices 1..11 map to koKR, frFR, deDE, zhCN,
 zhTW, esES, esMX, ruRU, itIT, ptBR, ptPT; enUS is index 0.
 

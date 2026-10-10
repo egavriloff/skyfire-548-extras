@@ -59,7 +59,10 @@ class TranslationComparisonTests(unittest.TestCase):
         self.assertTrue(sql)
         self.assertIn(l.sql_quote('Помощь стражу\n\nСпасибо, $N.'), '\n'.join(sql))
         l.persist_locale(self.conn, 'source-a', 'quest', '42', 'ruRU', {'title': 'Помощь', 'details': 'Помощь стражу\nСпасибо, $N.'}, 'different.sql', 30)
-        self.assertEqual(l.bulk_decision(self.conn, 'quest', '42', 'ruRU')[0]['status'], 'CONFLICT')
+        entry, sql = l.bulk_decision(self.conn, 'quest', '42', 'ruRU')
+        self.assertEqual(entry['status'], 'PARTIAL')
+        self.assertEqual(entry['fields']['details']['status'], 'CONFLICT')
+        self.assertNotIn('`details_loc8`', '\n'.join(sql))
 
     def test_narrow_punctuation_glyphs_equal(self):
         normalize = lambda text: l.translation_comparison_text(text, 'ruRU')

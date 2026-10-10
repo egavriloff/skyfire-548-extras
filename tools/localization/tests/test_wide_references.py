@@ -126,8 +126,10 @@ INSERT INTO quest_objective(id,questid,type,objectid,amount,flags,description) V
         self.assertIn("(91,8,'Стражу помогли')", '\n'.join(statements))
         conn.execute("UPDATE entities SET fields=json_set(fields,'$.objectid',999) WHERE source='custom-reference-42' AND kind='quest_objective'")
         entry, statements = l.bulk_decision(conn, 'quest', '10', 'ruRU')
-        self.assertEqual(entry['status'], 'UNSUPPORTED')
-        self.assertFalse(statements)
+        self.assertEqual(entry['status'], 'PARTIAL')
+        self.assertEqual(entry['fields']['objective:91']['status'], 'UNSUPPORTED')
+        self.assertNotIn('`locales_quest_objective`', '\n'.join(statements))
+        self.assertIn('`locales_quest`', '\n'.join(statements))
 
 
 if __name__ == '__main__':

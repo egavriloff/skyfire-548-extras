@@ -1969,7 +1969,7 @@ def export_rows(conn: sqlite3.Connection, kind: str, entity: str, locales: list[
                     provenance.append(f"{src}@{revision}:{p['file']}:{p['table']}")
         if not fields_out:
             continue
-        if kind in ('creature', 'quest') and any(status in ('CONFLICT', 'UNSUPPORTED') for status in statuses):
+        if kind == 'creature' and any(status in ('CONFLICT', 'UNSUPPORTED') for status in statuses):
             continue
         if proof:
             sql.append(f"-- SAFE_SINGLE_IDENTITY; confirmed={proof['confirmed_upstream']}; rejected={proof['rejected_upstream']}; --allow-single-identity")
@@ -2261,7 +2261,13 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
                                                              comparisons=comparisons) or comparisons
     statuses = {value["status"] for value in comparisons.values()}
     sql = []
-    if "UNSUPPORTED" in statuses:
+    if (kind == "quest" and identity and valid_key
+            and statuses & {"MATCH", "SOURCE_ONLY"}
+            and statuses & {"CONFLICT", "UNSUPPORTED"}):
+        status, reason = "PARTIAL", "Экспорт только согласованных полей; заблокированные поля не изменяются"
+        prepared = {(locale, field): (detail["status"], {k: v for k, v in detail.items() if k != "status"}) for field, detail in comparisons.items()}
+        sql = export_rows(conn, kind, entity, [locale], comparisons=prepared)
+    elif "UNSUPPORTED" in statuses:
         status = "UNSUPPORTED"
         reason = "Identity не подтверждена: " + identity_reason if candidates and not identity else "Неподдерживаемые localization data"
     elif "CONFLICT" in statuses:
@@ -2297,6 +2303,11 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
              "status": status, "reason": reason, "candidates_found": bool(candidates),
              "exported": bool(sql), "identity_failed": bool(candidates and not identity and not proof and not alias),
              "values": values, "provenance": provenance, "fields": comparisons}
+    if kind == 'quest':
+        for field, detail in comparisons.items():
+            detail['exported'] = bool(sql) and detail['status'] in ('MATCH', 'SOURCE_ONLY')
+        entry['exported_fields'] = sorted(field for field, detail in comparisons.items() if detail['exported'])
+        entry['blocked_fields'] = sorted(field for field, detail in comparisons.items() if detail['status'] in ('CONFLICT', 'UNSUPPORTED'))
     invalid = invalid_evidence
     if invalid:
         entry['invalid_values'] = invalid
@@ -2307,7 +2318,7 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         entry["single_identity"] = proof
     if alias:
         entry["verified_alias"] = alias
-    if not sql or proof or alias or rejections:
+    if not sql or proof or alias or rejections or status == "PARTIAL":
         entry["base_entities"] = {}
         for source in (*reference_sources(conn), "target"):
             row = conn.execute("SELECT fields,file FROM entities WHERE source=? AND kind=? AND entity=?", (source, kind, entity)).fetchone()
@@ -2334,12 +2345,12 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
             header = {"target": "SkyFire 5.4.8", "locale": locale, "selection": "indexed_target_entities",
                       "allow_single_identity": allow_single_identity,
                       "allow_verified_aliases": allow_verified_aliases,
-                      "counter_units": "entity/locale; mutually exclusive statuses; identity_failed is included in unsupported; skipped = total_target_entities - exported",
+                      "counter_units": "entity/locale statuses are mutually exclusive; PARTIAL includes blocked fields; *_fields count field values; identity_failed is included in unsupported; skipped = total_target_entities - exported",
                       "sql_files": {kind: f"{kind}-{locale}.sql" for kind in kinds}}
             report.write(json.dumps(header, ensure_ascii=False, sort_keys=True, indent=2)[:-2] + ',\n  "entries": [\n')
             first_entry = True
             for kind in kinds:
-                counts = {name: 0 for name in ("total_target_entities", "candidates_found", "exported", "MATCH", "SOURCE_ONLY", "SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS", "TARGET_IDENTICAL", "CONFLICT", "MISSING", "UNSUPPORTED", "identity_failed", "unsupported", "skipped")}
+                counts = {name: 0 for name in ("total_target_entities", "candidates_found", "exported", "MATCH", "SOURCE_ONLY", "SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS", "TARGET_IDENTICAL", "CONFLICT", "MISSING", "UNSUPPORTED", "identity_failed", "unsupported", "skipped", "PARTIAL", "exported_fields", "quest_row_fields", "objective_fields", "conflict_fields")}
                 summary[kind] = counts
                 order = "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),entity" if kind == "gossip_menu_option" else "json_extract(entity,'$'),entity"
                 rows = conn.execute("SELECT entity FROM entities WHERE source='target' AND kind=? ORDER BY " + order, (kind,))
@@ -2351,6 +2362,12 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                         counts["total_target_entities"] += 1
                         counts["candidates_found"] += int(entry["candidates_found"])
                         counts[entry["status"]] += 1
+                        if kind == 'quest':
+                            selected = entry['exported_fields']
+                            counts['exported_fields'] += len(selected)
+                            counts['quest_row_fields'] += sum(not field.startswith('objective:') for field in selected)
+                            counts['objective_fields'] += sum(field.startswith('objective:') for field in selected)
+                            counts['conflict_fields'] += sum(detail['status'] == 'CONFLICT' for detail in entry['fields'].values())
                         counts["identity_failed"] += int(entry["identity_failed"])
                         counts["unsupported"] += int(entry["status"] == "UNSUPPORTED")
                         if statements:
@@ -2358,7 +2375,7 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                             sql_file.write("\n".join(statements) + "\n")
                         else:
                             counts["skipped"] += 1
-                        if not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
+                        if kind == 'quest' or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
                             if not first_entry:
                                 report.write(",\n")
                             first_entry = False

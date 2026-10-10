@@ -84,9 +84,9 @@ class CreatureQuestTests(unittest.TestCase):
             key = self.ready(kind)
             self.record('source-b', kind, 42, {'name': 'Другой'} if kind == 'creature' else {'title': 'Другое'})
             entry, sql = l.bulk_decision(self.conn, kind, key, 'ruRU')
-            self.assertEqual(entry['status'], 'CONFLICT')
-            self.assertFalse(sql)
-            self.assertFalse(l.export_rows(self.conn, kind, key, ['ruRU']))
+            self.assertEqual(entry['status'], 'CONFLICT' if kind == 'creature' else 'PARTIAL')
+            self.assertEqual(bool(sql), kind == 'quest')
+            self.assertEqual(bool(l.export_rows(self.conn, kind, key, ['ruRU'])), kind == 'quest')
 
     def test_target_translation_preserved(self):
         key = self.ready('creature')
@@ -167,9 +167,75 @@ class CreatureQuestTests(unittest.TestCase):
         fields = l.base_entity(self.conn, 'source-b', 'quest_objective', '91')
         fields['objectid'] = 78
         self.entity('source-b', 'quest_objective', 91, fields)
-        self.assertFalse(l.export_rows(self.conn, 'quest', key, ['ruRU']))
+        sql = '\n'.join(l.export_rows(self.conn, 'quest', key, ['ruRU']))
+        self.assertIn('`locales_quest`', sql)
+        self.assertNotIn('`locales_quest_objective`', sql)
         self.conn.execute("DELETE FROM entities WHERE source='target' AND kind='quest_objective'")
         self.assertEqual(l.compare_value(self.conn, 'quest', key, 'ruRU', 'objective:91')[0], 'UNSUPPORTED')
+
+    def test_partial_quest_independent_conflicts_and_target_preserved(self):
+        key = self.ready('quest')
+        self.record('source-a', 'quest', 42, {'title': 'Доставка', 'details': 'Подробности А', 'objectives': 'Цели А', 'questgivertargetname': 'Имя А'})
+        self.record('source-b', 'quest', 42, {'title': 'Доставка', 'details': 'Другие подробности', 'objectives': 'Цели Б', 'questgivertargetname': 'Имя Б'})
+        self.record('target', 'quest', 42, {'questgivertargetname': 'Существующее имя'})
+        entry, statements = l.bulk_decision(self.conn, 'quest', key, 'ruRU')
+        sql = '\n'.join(statements)
+        self.assertEqual(entry['status'], 'PARTIAL')
+        self.assertEqual(entry['exported_fields'], ['title'])
+        self.assertIn('`title_loc8`', sql)
+        for field in ('details', 'objectives', 'questgivertargetname'):
+            self.assertNotIn('`' + field + '_loc8`', sql)
+            self.assertFalse(entry['fields'][field]['exported'])
+        self.assertIn("IS NULL OR `title_loc8`=''", sql)
+        self.assertIn('provenance', entry['fields']['title'])
+
+    def test_fully_conflicted_quest_exports_nothing(self):
+        key = self.ready('quest')
+        self.record('source-b', 'quest', 42, {'title': 'Другое название', 'details': 'Другие подробности'})
+        entry, statements = l.bulk_decision(self.conn, 'quest', key, 'ruRU')
+        self.assertEqual(entry['status'], 'CONFLICT')
+        self.assertFalse(statements)
+        self.assertFalse(l.export_rows(self.conn, 'quest', key, ['ruRU']))
+        self.assertEqual(entry['exported_fields'], [])
+
+    def test_partial_quest_existing_title_never_overwritten(self):
+        key = self.ready('quest')
+        self.record('target', 'quest', 42, {'title': 'Существующее название'})
+        entry, statements = l.bulk_decision(self.conn, 'quest', key, 'ruRU')
+        sql = '\n'.join(statements)
+        self.assertEqual(entry['status'], 'PARTIAL')
+        self.assertNotIn('`title_loc8`', sql)
+        self.assertIn('`details_loc8`', sql)
+        self.assertFalse(entry['fields']['title']['exported'])
+
+    def test_partial_quest_structural_failure_blocks_all_fields(self):
+        key = self.ready('quest')
+        fields = l.base_entity(self.conn, 'source-b', 'quest', key)
+        fields['method'] = 99
+        self.entity('source-b', 'quest', 42, fields)
+        entry, statements = l.bulk_decision(self.conn, 'quest', key, 'ruRU')
+        self.assertTrue(entry['identity_failed'])
+        self.assertFalse(statements)
+
+    def test_partial_bulk_report_and_sql_are_deterministic(self):
+        key = self.ready('quest')
+        self.record('source-b', 'quest', 42, {'title': 'Другое название', 'details': 'Отнесите посылку.$B$BСпасибо.'})
+        self.conn.commit()
+        outputs = []
+        for directory in ('partial-first', 'partial-second'):
+            path = self.root / directory
+            with redirect_stdout(StringIO()):
+                summary = l.bulk_export(self.conn, ['quest'], 'ruRU', path)
+            self.assertEqual(summary['quest']['PARTIAL'], 1)
+            self.assertEqual(summary['quest']['quest_row_fields'], 1)
+            report = json.loads((path / 'report-ruRU.json').read_text(encoding='utf-8'))
+            entry = report['entries'][0]
+            self.assertEqual(entry['fields']['title']['status'], 'CONFLICT')
+            self.assertEqual(entry['exported_fields'], ['details'])
+            self.assertIn('provenance', entry['fields']['details'])
+            self.assertIn('base_entities', entry)
+            outputs.append({p.name: p.read_bytes() for p in path.iterdir()})
+        self.assertEqual(outputs[0], outputs[1])
 
     def test_only_target_entities_and_deterministic_bulk(self):
         self.ready('creature')
