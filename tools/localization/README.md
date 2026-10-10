@@ -174,3 +174,23 @@ is byte-identical. It applies no SQL and makes no commit. Historical review/smok
 files without bundle/approval are not publication inputs.
 
 End users need only published SQL and instructions, not Python, externals or .tmp/.
+
+## Reference schema adapters
+
+Adapters are selected by table/column structure, never by source ID. Supported
+reference inputs include plural `quest_objectives` (`StorageIndex` maps to the
+objective index), split quest reward/request base and locale tables, and wide
+locale tables with `VerifiedBuild` metadata. Metadata is not translation evidence.
+
+Split `creature_template` / `creature_template_wdb` identity requires a single
+`PRIMARY KEY(entry)` on both tables, the expected structural columns, matching
+keys within the same source, and consistent overlapping identity fields. Missing
+or unproven joins remain incomplete. WDB locale rows keep their original text and
+source table provenance. Incomplete composite gossip keys are rejected; the
+row-based `(MenuID, ID, Locale)` layout uses `ID` as the option key.
+
+The index retains legacy `warnings` and structured `parser_diagnostics` containing
+source, file, table, entity kind, reason and affected key/row or statement scope.
+Unsupported identity updates remain incomplete evidence. JOIN updates assigning
+only the known non-identity `creature_template.gossip_menu_id` are ignored; this
+does not permit arbitrary JOIN execution or change matching/trust policies.

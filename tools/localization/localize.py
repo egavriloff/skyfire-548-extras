@@ -88,6 +88,8 @@ REFERENCE_LOCALE_TABLES['locales_gossip_menu_option'] = 'gossip_menu_option'
 def locale_table_kind(table: str) -> str | None:
     if table in REFERENCE_LOCALE_TABLES:
         return REFERENCE_LOCALE_TABLES[table]
+    if table == 'creature_template_wdb_locale':
+        return 'creature'
     if table == 'quest_objectives_locale':
         return 'quest_objective'
     return next((k for k, s in ALL_SPECS.items() if table in (s['source_table'], s['target_table'])), None)
@@ -103,6 +105,12 @@ def canonical_row(kind: str, row: dict) -> dict:
         for alias, field in {**QUEST_ALIASES, **QUEST_STRUCT_ALIASES}.items():
             if alias in row:
                 row[field] = row[alias]
+    if kind == 'quest_objective' and 'storageindex' in row:
+        row['index'] = row['storageindex']
+    if kind == 'quest_offer_reward' and 'offerrewardtext' in row:
+        row['rewardtext'] = row['offerrewardtext']
+    if kind == 'quest_request_items' and 'requestitemstext' in row:
+        row['completiontext'] = row['requestitemstext']
     return row
 
 GOSSIP_FIELDS = {
@@ -515,6 +523,12 @@ def db_connect(path: Path = INDEX) -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS entities_name_idx ON entities(source,kind,json_extract(fields,'$.name'))")
     conn.execute("CREATE INDEX IF NOT EXISTS quest_objectives_parent_idx ON entities(kind,source,json_extract(fields,'$.questid'))")
     conn.execute("CREATE INDEX IF NOT EXISTS quest_objectives_all_parents_idx ON entities(kind,json_extract(fields,'$.questid'))")
+    conn.execute('CREATE TABLE IF NOT EXISTS source_schemas(source TEXT,table_name TEXT,columns TEXT,primary_key TEXT,file TEXT,PRIMARY KEY(source,table_name))')
+    conn.execute('CREATE TABLE IF NOT EXISTS creature_parts(source TEXT,table_name TEXT,entity TEXT,fields TEXT,file TEXT,rank INTEGER,PRIMARY KEY(source,table_name,entity))')
+    conn.execute('CREATE INDEX IF NOT EXISTS creature_parts_entity_idx ON creature_parts(source,entity)')
+    conn.execute('CREATE TABLE IF NOT EXISTS parser_diagnostics(source TEXT,file TEXT,table_name TEXT,entity TEXT,reason TEXT,affected_row TEXT)')
+    conn.execute('CREATE INDEX IF NOT EXISTS warnings_dedup_idx ON warnings(source,file,message)')
+    conn.execute('CREATE INDEX IF NOT EXISTS diagnostics_dedup_idx ON parser_diagnostics(source,file,table_name,entity,reason,affected_row)')
     return conn
 
 
@@ -553,7 +567,7 @@ def skip_statement(t: Tokens) -> None:
             return
 
 
-def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str], list[str]]) -> None:
+def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str], list[str]], conn=None) -> None:
     # CREATE [TEMPORARY] TABLE [IF NOT EXISTS] name (...)
     tok = t.get()
     if tok[1].upper() == "TEMPORARY":
@@ -571,7 +585,7 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     if t.get()[0] != "(":
         skip_statement(t)
         return
-    depth, cols, segment = 1, [], []
+    depth, cols, segment, segments = 1, [], [], []
     def is_column(segment):
         first = segment[0][1].lower()
         if first == 'index' and len(segment) > 1 and segment[1][1].lower() in ('tinyint', 'smallint', 'mediumint', 'int', 'bigint'):
@@ -587,12 +601,14 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
             depth -= 1
             if depth == 0:
                 if segment:
+                    segments.append(segment)
                     first = segment[0][1].lower()
                     if is_column(segment):
                         cols.append(first)
                 break
         if x[0] == "," and depth == 1:
             if segment:
+                segments.append(segment)
                 first = segment[0][1].lower()
                 if is_column(segment):
                     cols.append(first)
@@ -600,6 +616,13 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
         else:
             segment.append(x)
     schemas[(source, name)] = cols
+    if conn is not None:
+        primary = []
+        for part in segments:
+            if [x[1].upper() for x in part[:2]] == ['PRIMARY', 'KEY']:
+                primary = [x[1].lower() for x in part[2:] if x[0] == 'word']
+        conn.execute('INSERT OR REPLACE INTO source_schemas VALUES(?,?,?,?,?)',
+                     (source, name, json.dumps(cols), json.dumps(primary), file))
     skip_statement(t)
 
 
@@ -666,17 +689,22 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
         return None
     row = canonical_row(kind, {str(c).lower(): v for c, v in zip(cols, vals)})
     # Source row-style localization.
-    if table == spec["source_table"] or table == 'quest_objectives_locale' or kind == 'quest_objective':
+    if table == spec["source_table"] or table in ('quest_objectives_locale', 'creature_template_wdb_locale') or kind == 'quest_objective':
         if kind == "gossip_menu_option":
-            entity = (row.get("menuid"), row.get("optionid", row.get("optionindex")))
+            entity = (row.get("menuid"), row.get("optionid", row.get("optionindex", row.get("id"))))
         else:
-            entity = row.get(spec["source_id"])
+            entity = row.get("id" if table == "creature_template_wdb_locale" else spec["source_id"])
         locale = row.get(spec["source_locale"])
         if kind == 'quest_objective' and isinstance(locale, int):
             locale = next((code for code, n in LOCALES.items() if n == locale), None)
-        if entity is None or locale not in LOCALES:
+        if not valid_entity_key(kind, entity) or locale not in LOCALES:
             return None
         fields = {key: row.get(col) for key, col in spec["source_target_fields"].items()}
+        if table == 'creature_template_wdb_locale':
+            entity = row.get('id')
+            if not valid_entity_key(kind, entity):
+                return None
+            fields = {'name': row.get('name1'), 'subname': row.get('title')}
         return kind, json.dumps(entity, ensure_ascii=False), str(locale), fields
     # SkyFire wide table: only non-enUS localized slots are represented here.
     if kind == "gossip_menu_option":
@@ -723,22 +751,47 @@ def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
     return {k: row[k] for k in sorted(GO_FIELDS) if k in row}
 
 
-def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[str, object], file: str, rank: int) -> None:
+def valid_entity_key(kind, key):
+    parts = key if kind == 'gossip_menu_option' and isinstance(key, (tuple, list)) else (key,)
+    return (kind != 'gossip_menu_option' or len(parts) == 2) and all(type(v) is int and v >= 0 for v in parts)
+
+
+def schema_warning(conn, source, file, table, kind, reason, key=None, row=None, *, emit_warning=True):
+    affected = json.dumps({'key': key, 'row': row}, ensure_ascii=False, sort_keys=True)
+    message = f'SCHEMA {table} entity={kind} key={json.dumps(key)}: {reason}'
+    if emit_warning:
+        parser_warning(conn, source, file, message)
+    conn.execute('INSERT INTO parser_diagnostics SELECT ?,?,?,?,?,? WHERE NOT EXISTS '
+                 '(SELECT 1 FROM parser_diagnostics WHERE source=? AND file=? AND table_name=? AND entity=? AND reason=? AND affected_row=?)',
+                 (source, file, table, kind, reason, affected, source, file, table, kind, reason, affected))
+
+
+def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[str, object], file: str, rank: int, table_name: str | None = None) -> None:
     spec = ALL_SPECS[kind]
     if kind == "gossip_menu_option":
         ident = (row.get("menuid", row.get("menu_id")), row.get("optionid", row.get("optionindex", row.get("id"))))
     else:
         ident = row.get(spec["entity_fields"][0])
-    if ident is None:
+    if not valid_entity_key(kind, ident):
+        schema_warning(conn, source, file, table_name or spec['target_entity'], kind, 'incomplete or invalid entity key; row rejected', ident, row)
         return
     fields = identity_fields(kind, row)
     if not fields:
+        schema_warning(conn, source, file, table_name or spec['target_entity'], kind, 'missing base identity fields; row rejected', ident, row)
         return
+    required = {'creature': {'name', 'type', 'unit_class'}, 'quest': {'title', 'objectives', 'details', 'minlevel'}}.get(kind, set())
+    missing = sorted(required - set(fields))
+    if missing:
+        fields['_evidence_incomplete'] = 1
+        schema_warning(conn, source, file, table_name or spec['target_entity'], kind, 'incomplete base identity: missing ' + ', '.join(missing), ident, row)
     conn.execute("INSERT INTO entities VALUES(?,?,?,?,?,?) ON CONFLICT(source,kind,entity) DO UPDATE SET fields=excluded.fields,file=excluded.file,rank=excluded.rank WHERE excluded.rank>=entities.rank",
                  (source, kind, json.dumps(ident, ensure_ascii=False), json.dumps(fields, ensure_ascii=False), file, rank))
 
 
 def persist_locale(conn: sqlite3.Connection, source: str, kind: str, entity: str, locale: str, fields: dict[str, object], file: str, rank: int, table_name: str | None = None) -> None:
+    if not valid_entity_key(kind, json.loads(entity)):
+        schema_warning(conn, source, file, table_name or ALL_SPECS[kind]['source_table'], kind, 'incomplete or invalid entity key; row rejected', json.loads(entity), fields)
+        return
     if source != 'target' and locale == 'ruRU':
         existing_rank = conn.execute('SELECT max(rank) FROM (SELECT rank FROM records WHERE source=? AND kind=? AND entity=? AND locale=? UNION ALL SELECT rank FROM invalid_values WHERE source=? AND kind=? AND entity=? AND locale=?)',
                                      (source, kind, entity, locale, source, kind, entity, locale)).fetchone()[0]
@@ -750,7 +803,7 @@ def persist_locale(conn: sqlite3.Connection, source: str, kind: str, entity: str
             reason = 'suspected mojibake; source value excluded without repair'
             conn.execute('INSERT INTO invalid_values VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source,kind,entity,locale,field) DO UPDATE SET value=excluded.value,file=excluded.file,table_name=excluded.table_name,reason=excluded.reason,rank=excluded.rank WHERE excluded.rank>=invalid_values.rank',
                          (source, kind, entity, locale, field, value, file, table_name or ALL_SPECS[kind]['source_table'], reason, rank))
-            parser_warning(conn, source, file, f'INVALID LOCALE {kind} {entity} {locale} {field}: {reason}')
+            parser_warning(conn, source, file, f'INVALID LOCALE {kind} {entity} {locale} {field}: {reason}', table_name=table_name)
             clean.pop(field, None)
         elif source != 'target' and locale == 'ruRU':
             conn.execute('DELETE FROM invalid_values WHERE source=? AND kind=? AND entity=? AND locale=? AND field=? AND rank<=?',
@@ -793,7 +846,7 @@ def reference_locale_plan(table: str, cols: list[str]) -> tuple[str, tuple[str, 
     if not cols or len(cols) != len(set(cols)) or not set(keys).issubset(cols):
         raise ValueError('missing/duplicate entity key columns')
     if kind == 'quest_objective':
-        if set(cols) != {'id', 'locale', 'description'}:
+        if set(cols) - {'verifiedbuild'} != {'id', 'locale', 'description'}:
             raise ValueError('expected id, locale, description schema')
         return kind, keys, {'description': ('description', 'row')}
     patterns = ({'optiontext': 'option_text_loc{n}', 'boxtext': 'box_text_loc{n}'}
@@ -801,7 +854,7 @@ def reference_locale_plan(table: str, cols: list[str]) -> tuple[str, tuple[str, 
     known = {pattern.format(n=n): (field, locale) for field, pattern in patterns.items()
              for locale, n in LOCALES.items() if n > 0}
     female = {prefix + '_female_loc' + str(n) for prefix in ('option_text', 'box_text') for n in range(1, 12)} if kind == 'gossip_menu_option' else set()
-    unknown = set(cols) - set(keys) - set(known) - female
+    unknown = set(cols) - set(keys) - set(known) - female - {"verifiedbuild"}
     mapped = {col: known[col] for col in cols if col in known}
     if unknown or not mapped:
         raise ValueError('unsupported locale columns: ' + ', '.join(sorted(unknown)) if unknown else 'no supported locale columns')
@@ -864,9 +917,11 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     if source == 'target':
         locale_tables.difference_update(('quest_offer_reward_locale', 'quest_request_items_locale'))
     if source != 'target':
-        locale_tables.add('quest_objectives_locale')
+        locale_tables.update(('quest_objectives_locale', 'creature_template_wdb_locale'))
         locale_tables.update(REFERENCE_LOCALE_TABLES)
     entity_tables = {spec["target_entity"] for spec in ALL_SPECS.values()} | {"gossip_menu_option_box", "gossip_menu_option_action"}
+    if source != "target":
+        entity_tables.update(("creature_template_wdb", "quest_objectives"))
     relevant = locale_tables if phase == "locales" else entity_tables
     if table not in relevant:
         t.skip_raw_statement()
@@ -925,8 +980,10 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     while True:
         x = t.get()
         if x[0] == "(":
-            if phase == "entities" and cols and table not in ('creature_template', 'quest_template', *QUEST_PARTS):
+            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', *QUEST_PARTS):
                 first_index = next((cols.index(c) for c in ("entry", "menuid", "menu_id", "id") if c in cols), -1)
+                if table in ('gossip_menu_option', 'gossip_menu_option_box', 'gossip_menu_option_action') and (len(cols) < 2 or cols[0] not in ('menuid', 'menu_id') or cols[1] not in ('optionid', 'optionindex', 'id')):
+                    first_index = -1  # Sparse composite reads require proven column order.
                 if first_index == 0:
                     # Read the integer entity key before paying to tokenize every non-candidate row.
                     prefix = t.get()
@@ -938,11 +995,15 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         comma = t.get()
                         second = t.get()
                         comma2 = t.get()
+                        second_value = None
                         try:
                             second_value = int(sql_value([second], t.variables))
                             candidate_key = json.dumps((key_value, second_value))
                         except (ValueError, TypeError):
                             candidate_key = ""
+                        if key_value is None or second_value is None:
+                            schema_warning(conn, source, file, table, 'gossip_menu_option', 'incomplete composite key; row rejected',
+                                           (key_value, second_value), dict(zip(cols[:2], (key_value, second_value))))
                         if comma[0] != "," or comma2[0] != "," or candidate_key not in candidates:
                             t.skip_raw_tuple()
                             sep = t.get()
@@ -978,11 +1039,17 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
             if len(cols) == len(vals):
                 row = {c: v for c, v in zip(cols, vals)}
                 spec_kind = locale_table_kind(table)
+                if spec_kind == 'gossip_menu_option':
+                    key = (row.get('menuid', row.get('menu_id')), row.get('optionid', row.get('optionindex', row.get('id'))))
+                    if not valid_entity_key(spec_kind, key):
+                        schema_warning(conn, source, file, table, spec_kind, 'incomplete composite key; row rejected', key, row)
                 if reference_plan:
                     try:
                         persist_reference_locale(conn, source, table, reference_plan, row, file, rank)
                     except ValueError as exc:
                         parser_warning(conn, source, file, f'REFERENCE LOCALE {table}: {exc}')
+                        parts = [row.get(key) for key in reference_plan[1]]
+                        schema_warning(conn, source, file, table, reference_plan[0], str(exc), parts if len(parts) > 1 else parts[0], row, emit_warning=False)
                 elif spec_kind:
                     if table == ALL_SPECS[spec_kind]["target_table"] and ALL_SPECS[spec_kind]['wide_fields']:
                         entity = row.get(ALL_SPECS[spec_kind]["target_id"])
@@ -1007,11 +1074,19 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                                      (source, json.dumps((menu, option)), table, json.dumps(identity_fields("gossip_menu_option", row), ensure_ascii=False), file))
                 # Base entity identity records.
                 base_map = {s['target_entity']: k for k, s in ALL_SPECS.items()}
-                if table in base_map:
-                    persist_entity(conn, source, base_map[table], row, file, rank)
+                if source != 'target':
+                    base_map['quest_objectives'] = 'quest_objective'
+                if source != 'target' and table in ('creature_template', 'creature_template_wdb') and (source, 'creature_template_wdb') in schemas:
+                    persist_split_creature(conn, source, table, row, file, rank)
+                elif table == 'quest_objectives' and not {'id', 'questid', 'type', 'objectid', 'amount', 'flags', 'storageindex'}.issubset(row):
+                    schema_warning(conn, source, file, table, 'quest_objective', 'incomplete plural objective structural identity; row rejected', row.get('id'), row)
+                elif table in base_map:
+                    persist_entity(conn, source, base_map[table], row, file, rank, table)
                 if conn.total_changes - parse_insert.last_commit >= 20000:
                     conn.commit()
                     parse_insert.last_commit = conn.total_changes
+            else:
+                schema_warning(conn, source, file, table, locale_table_kind(table) or 'base', 'column/value count mismatch; row rejected', row=vals)
             sep = t.get()
             if sep[0] == ",":
                 continue
@@ -1033,7 +1108,7 @@ TARGET_TABLES = {
     "gossip_menu_option_locale", "gossip_menu_option", "gossip_menu_option_box", "gossip_menu_option_action",
 }
 TARGET_TABLES.update(table for spec in ALL_SPECS.values() for table in (spec['source_table'], spec['target_table'], spec['target_entity']))
-TARGET_TABLES.add('quest_objectives_locale')
+TARGET_TABLES.update(('quest_objectives_locale', 'quest_objectives', 'creature_template_wdb', 'creature_template_wdb_locale'))
 TARGET_TABLES.update(REFERENCE_LOCALE_TABLES)
 
 
@@ -1062,7 +1137,7 @@ def scan_file(conn: sqlite3.Connection, source: str, path: Path, member: str | N
                 break
             word = token[1].upper()
             if word == "CREATE":
-                parse_create(t, source, file, schemas)
+                parse_create(t, source, file, schemas, conn)
             elif word in ("INSERT", "REPLACE"):
                 parse_insert(t, source, file, schemas, conn, rank, phase, candidates)
             elif word == "DELETE":
@@ -1117,6 +1192,10 @@ def split_tokens(tokens: list[tuple[str, str]], separator: str) -> list[list[tup
 
 
 def table_info(table: str, source: str | None = None) -> tuple[str, str] | None:
+    if source and source != 'target' and table in ('quest_objectives', 'creature_template_wdb'):
+        return ('quest_objective' if table == 'quest_objectives' else 'creature'), 'entities'
+    if source and source != 'target' and table == 'creature_template_wdb_locale':
+        return 'creature', 'records'
     if source and source != 'target' and table in REFERENCE_LOCALE_TABLES:
         return REFERENCE_LOCALE_TABLES[table], 'records'
     if source == 'target' and table in ('quest_offer_reward_locale', 'quest_request_items_locale'):
@@ -1255,9 +1334,21 @@ def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variab
     return " AND ".join(fragments), params
 
 
-def parser_warning(conn: sqlite3.Connection, source: str, file: str, message: str) -> None:
+def parser_warning(conn: sqlite3.Connection, source: str, file: str, message: str, *, table_name: str | None = None) -> None:
     conn.execute("INSERT INTO warnings SELECT ?,?,? WHERE NOT EXISTS (SELECT 1 FROM warnings WHERE source=? AND file=? AND message=?)",
                  (source, file, message, source, file, message))
+    match = re.match(r'(?:REFERENCE LOCALE|INSERT SELECT|UPDATE|DELETE) ([a-z_]+):', message)
+    invalid = re.match(r'INVALID LOCALE ([a-z_]+) (.+?) (\w+) ([a-z_]+): (.*)', message)
+    if match or invalid:
+        table = table_name or (match[1] if match else ALL_SPECS[invalid[1]]['source_table'])
+        info = table_info(table, source)
+        kind = info[0] if info else (invalid[1] if invalid else 'unknown')
+        affected = {'scope': 'statement; affected keys not decoded'} if not invalid else {'key': json.loads(invalid[2]), 'locale': invalid[3], 'field': invalid[4]}
+        reason = message.split(': ', 1)[-1]
+        serialized = json.dumps(affected, ensure_ascii=False, sort_keys=True)
+        conn.execute('INSERT INTO parser_diagnostics SELECT ?,?,?,?,?,? WHERE NOT EXISTS '
+                     '(SELECT 1 FROM parser_diagnostics WHERE source=? AND file=? AND table_name=? AND entity=? AND reason=? AND affected_row=?)',
+                     (source, file, table, kind, reason, serialized, source, file, table, kind, reason, serialized))
 
 
 def reference_wide_filter(source, table, kind, condition, params):
@@ -1304,6 +1395,9 @@ def parse_delete(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         condition, params = predicate_sql(tokens[1:], kind, storage, t.variables)
         if storage == 'records':
             condition, params = reference_wide_filter(source, table, kind, condition, params)
+        if storage == 'entities' and kind == 'creature':
+            affected = [r[0] for r in conn.execute('SELECT entity FROM entities WHERE source=? AND kind=? AND ' + condition, [source, kind] + params)]
+            conn.executemany('DELETE FROM creature_parts WHERE source=? AND table_name=? AND entity=?', [(source, table, key) for key in affected])
         conn.execute(f"DELETE FROM {storage} WHERE source=? AND kind=? AND " + condition, [source, kind] + params)
     except (ValueError, IndexError) as exc:
         parser_warning(conn, source, file, f"DELETE {table}: {exc}")
@@ -1318,13 +1412,21 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
                 return (field, locale) if locale else None
         return None
     spec = ALL_SPECS[kind]
+    if table == 'creature_template_wdb':
+        column = {'name1': 'name', 'title': 'subname', 'classification': 'rank'}.get(column, column)
+        return (column, 'entity') if column in ('name', 'subname', *CREATURE_STRUCT) else None
+    if table == 'creature_template_wdb_locale':
+        return ({'name1': 'name', 'title': 'subname'}[column], 'locale') if column in ('name1', 'title') else None
+    if table == 'quest_objectives':
+        mapped = identity_fields(kind, {column: 0})
+        return (next(iter(mapped)), 'entity') if mapped else None
     if kind in ('creature', 'quest', *QUEST_PARTS):
         if table == spec['target_entity']:
             mapped = identity_fields(kind, {column: 0})
             return (next(iter(mapped)), 'entity') if mapped else None
         if kind in QUEST_PARTS:
             field, col = QUEST_PARTS[kind][1:]
-            return (field, 'locale') if column == col else None
+            return (field, 'locale') if col in canonical_row(kind, {column: 0}) else None
         mapped = canonical_row(kind, {column: 0})
         for field in spec['text_fields']:
             if field in mapped:
@@ -1369,7 +1471,7 @@ def apply_simple_update(conn: sqlite3.Connection, source: str, table: str, assig
     if not kind:
         return False
     spec = ALL_SPECS[kind]
-    if table == spec["target_entity"]:
+    if info[1] == "entities":
         if kind == "gossip_menu_option":
             menu = where.get("menuid", where.get("menu_id"))
             option = where.get("optionid", where.get("id"))
@@ -1397,6 +1499,11 @@ def apply_simple_update(conn: sqlite3.Connection, source: str, table: str, assig
                     fields[normalized[0]] = value
             conn.execute("UPDATE entities SET fields=?,file=?,rank=? WHERE source=? AND kind=? AND entity=?",
                          (json.dumps(fields, ensure_ascii=False), file, rank, source, kind, entity))
+            part = conn.execute('SELECT fields FROM creature_parts WHERE source=? AND table_name=? AND entity=?', (source, table, entity)).fetchone()
+            if part:
+                raw = json.loads(part[0]); raw.update(assignments)
+                conn.execute('UPDATE creature_parts SET fields=?,file=?,rank=? WHERE source=? AND table_name=? AND entity=?',
+                             (json.dumps(raw, ensure_ascii=False), file, rank, source, table, entity))
         return True
     # Locale row updates require an entity key and locale. Wide target rows derive locale from _locN.
     if kind == "gossip_menu_option":
@@ -1428,7 +1535,7 @@ def apply_simple_update(conn: sqlite3.Connection, source: str, table: str, assig
         current = conn.execute("SELECT fields FROM records WHERE source=? AND kind=? AND entity=? AND locale=?", (source, kind, entity, loc)).fetchone()
         fields = json.loads(current[0]) if current else {}
         fields.update(fields_update)
-        persist_locale(conn, source, kind, entity, loc, fields, file, rank)
+        persist_locale(conn, source, kind, entity, loc, fields, file, rank, table)
     return True
 
 
@@ -1454,6 +1561,88 @@ def apply_gossip_box_join(conn: sqlite3.Connection, source: str, file: str, toke
     return True
 
 
+def persist_split_creature(conn, source, table, row, file, rank):
+    key = row.get('entry')
+    if not valid_entity_key('creature', key):
+        schema_warning(conn, source, file, table, 'creature', 'invalid WDB join key; row rejected', key, row)
+        return
+    entity = json.dumps(key)
+    conn.execute('INSERT INTO creature_parts VALUES(?,?,?,?,?,?) ON CONFLICT(source,table_name,entity) DO UPDATE '
+                 'SET fields=excluded.fields,file=excluded.file,rank=excluded.rank WHERE excluded.rank>=creature_parts.rank',
+                 (source, table, entity, json.dumps(row, ensure_ascii=False), file, rank))
+    parts = {t: (json.loads(data), path, priority) for t, data, path, priority in conn.execute(
+        'SELECT table_name,fields,file,rank FROM creature_parts WHERE source=? AND entity=?', (source, entity))}
+    reason = None
+    primary_keys = {}
+    for name, required in (('creature_template', {'entry', 'unit_class'}),
+                           ('creature_template_wdb', {'entry', 'name1', 'type', 'family', 'classification'})):
+        schema = conn.execute('SELECT columns,primary_key FROM source_schemas WHERE source=? AND table_name=?', (source, name)).fetchone()
+        primary_keys[name] = json.loads(schema[1]) if schema else []
+        if not schema or primary_keys[name] != ['entry'] or not required.issubset(json.loads(schema[0])):
+            reason = 'unproven split identity join: expected single PRIMARY KEY(entry) and structural columns'
+    if reason is None and len(parts) < 2:
+        reason = 'incomplete split identity: missing matching creature_template or creature_template_wdb row'
+    merged = {}
+    if reason is None:
+        for name in ('creature_template', 'creature_template_wdb'):
+            raw = parts[name][0]
+            mapped = dict(raw)
+            if name.endswith('_wdb'):
+                mapped.update(name=raw.get('name1'), subname=raw.get('title'), rank=raw.get('classification'))
+            fields = identity_fields('creature', mapped)
+            if any(k in merged and merged[k] != v for k, v in fields.items() if k != 'subname'):
+                reason = 'conflicting split structural identity fields'
+            merged.update(fields)
+        if any(merged.get(k) is None for k in ('name', *CREATURE_STRUCT)):
+            reason = 'incomplete split identity: missing name or strict structural field'
+    previous = conn.execute("SELECT fields FROM entities WHERE source=? AND kind='creature' AND entity=?", (source, entity)).fetchone()
+    # Unsupported updates remain blocked, even if another part is subsequently inserted.
+    if previous and json.loads(previous[0]).get('_evidence_incomplete') and not json.loads(previous[0]).get('_split_pending'):
+        reason = 'split identity has unresolved UPDATE evidence'
+    if reason:
+        merged.update(_evidence_incomplete=1)
+        if reason != 'split identity has unresolved UPDATE evidence':
+            merged['_split_pending'] = 1
+    merged['_structural_provenance'] = {name: {'file': value[1], 'key': key, 'primary_key': primary_keys.get(name, [])} for name, value in parts.items()}
+    conn.execute("INSERT INTO entities VALUES(?,?,?,?,?,?) ON CONFLICT(source,kind,entity) DO UPDATE SET fields=excluded.fields,file=excluded.file,rank=excluded.rank",
+                 (source, 'creature', entity, json.dumps(merged, ensure_ascii=False), file, max(v[2] for v in parts.values())))
+    if reason and not reason.startswith('incomplete split identity: missing matching'):
+        schema_warning(conn, source, file, table, 'creature', reason, key)
+
+
+def finalize_schema_evidence(conn):
+    for source, entity, data, file in conn.execute("SELECT source,entity,fields,file FROM entities WHERE kind='creature' AND json_extract(fields,'$._split_pending')=1").fetchall():
+        schema_warning(conn, source, file, 'creature_template_wdb', 'creature', 'incomplete/unproven split identity; evidence unusable', json.loads(entity), json.loads(data))
+
+
+
+
+def ignored_metadata_join(tokens, kind, table):
+    """Ignore a JOIN only when every assignment targets known non-identity columns."""
+    marker = next((i for i, tok in enumerate(tokens) if tok[1].upper() == 'SET'), None)
+    if marker is None:
+        return False
+    prefix = tokens[:marker]
+    alias = None
+    if prefix and prefix[0][1].upper() == 'AS' and len(prefix) > 1:
+        alias = prefix[1][1].lower()
+    elif prefix and prefix[0][1].upper() not in ('JOIN', 'LEFT', 'RIGHT', 'INNER'):
+        alias = prefix[0][1].lower()
+    allowed = {'creature_template': {'gossip_menu_id'}}.get(table, set())
+    end = next((i for i in range(marker + 1, len(tokens)) if tokens[i][1].upper() == 'WHERE'), len(tokens))
+    assignments = split_tokens(tokens[marker + 1:end], ',')
+    if not assignments or not allowed:
+        return False
+    for part in assignments:
+        if len(part) < 5 or part[1][0] != '.' or part[3][0] != '=':
+            return False
+        if part[0][1].lower() not in (alias, table) or part[2][1].lower() not in allowed:
+            return False
+        if normalized_update_field(kind, table, part[2][1].lower()):
+            return False
+    return True
+
+
 def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, phase: str | None = None) -> None:
     table = next_name(t)
     if table not in TARGET_TABLES:
@@ -1468,6 +1657,8 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         return
     try:
         if not tokens or tokens[0][1].upper() != "SET":
+            if ignored_metadata_join(tokens, kind, table):
+                return
             if table == "gossip_menu_option" and apply_gossip_box_join(conn, source, file, tokens):
                 return
             raise ValueError("неподдерживаемый JOIN UPDATE")
@@ -1507,7 +1698,9 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
                 condition, params = predicate_sql(tokens[marker + 1:], kind, storage, t.variables)
             except (ValueError, IndexError, StopIteration):
                 pass
-            conn.execute("UPDATE entities SET fields=json_set(fields,'$._evidence_incomplete',1) WHERE source=? AND kind=? AND " + condition, [source, kind] + params)
+            affected = [json.loads(r[0]) for r in conn.execute('SELECT entity FROM entities WHERE source=? AND kind=? AND ' + condition, [source, kind] + params)]
+            schema_warning(conn, source, file, table, kind, 'unsupported identity UPDATE; evidence marked incomplete', row={'keys': affected, 'predicate': condition, 'parameters': params, 'sql_tokens': tokens}, emit_warning=False)
+            conn.execute("UPDATE entities SET fields=json_set(json_remove(fields,'$._split_pending'),'$._evidence_incomplete',1) WHERE source=? AND kind=? AND " + condition, [source, kind] + params)
 
 
 def build_index(_: argparse.Namespace) -> int:
@@ -1553,6 +1746,8 @@ def build_index(_: argparse.Namespace) -> int:
             conn.execute("INSERT INTO warnings VALUES(?,?,?)", (source, str(path), "entity pass: " + str(exc)))
             print(f"Ошибка entity-pass {path}: {exc}", file=sys.stderr)
         conn.commit()
+    finalize_schema_evidence(conn)
+    conn.commit()
     print("Индекс построен:", INDEX)
     for source, count in counts.items():
         nrec = conn.execute("SELECT count(*) FROM records WHERE source=?", (source,)).fetchone()[0]
