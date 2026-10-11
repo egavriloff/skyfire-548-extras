@@ -8,12 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import localize as l
+from fixture_roles import fixture_connect
 
 
 class SchemaAdapters(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.conn = l.db_connect(Path(self.tmp.name) / 'index.sqlite3')
+        self.conn = fixture_connect(Path(self.tmp.name) / 'index.sqlite3')
         self.schemas = {}
 
     def tearDown(self):

@@ -6,13 +6,14 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import localize as l
+from fixture_roles import fixture_connect
 
 
 class IdentityRepresentationTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.conn = l.db_connect(Path(temp.name) / 'index.sqlite3')
+        self.conn = fixture_connect(Path(temp.name) / 'index.sqlite3')
         self.addCleanup(self.conn.close)
         self.quest = {'title': 'Help the guard', 'objectives': 'Help the guard.', 'details': 'Please help.\nThank you, $N.', 'minlevel': 1, 'method': 2, 'type': 0, 'zoneorsort': 9}
         self.creature = {'name': 'Guard', 'subname': None, 'type': 7, 'unit_class': 1, 'family': 0, 'rank': 1}

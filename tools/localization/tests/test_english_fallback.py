@@ -6,13 +6,14 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import localize as l
+from fixture_roles import fixture_connect
 
 
 class EnglishFallbackTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.conn = l.db_connect(Path(temp.name) / 'index.sqlite3')
+        self.conn = fixture_connect(Path(temp.name) / 'index.sqlite3')
         self.addCleanup(self.conn.close)
         self.base = {'name': 'Guard', 'subname': 'Trainer', 'type': 7, 'unit_class': 1, 'family': 0, 'rank': 0}
         for source in ('target', 'source-a', 'source-b', 'custom-reference-42'):

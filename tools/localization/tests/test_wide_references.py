@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import localize as l
+from fixture_roles import fixture_connect
 
 
 class WideReferenceTests(unittest.TestCase):
@@ -26,13 +27,14 @@ class WideReferenceTests(unittest.TestCase):
         path = self.root / 'externals/references' / source / 'db/world.sql'
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(sql, encoding='utf-8')
+        (path.parent.parent / 'source.json').write_text('{"evidence_role":"primary"}',encoding='utf-8')
         if target:
             path = self.root / 'externals/core/db/world.sql'
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(target, encoding='utf-8')
         with redirect_stdout(StringIO()):
             l.build_index(None)
-        conn = l.db_connect(self.index)
+        conn = fixture_connect(self.index)
         self.addCleanup(conn.close)
         return conn
 

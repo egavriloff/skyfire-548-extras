@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import localize as l
+from fixture_roles import fixture_connect
 import publishing
 
 
@@ -31,6 +32,8 @@ class StructurePublishTests(unittest.TestCase):
         file = root / part / 'world.sql'
         file.parent.mkdir(parents=True,exist_ok=True)
         file.write_text(content,encoding='utf-8')
+        if name != 'target':
+            (root / 'source.json').write_text('{"evidence_role":"primary"}',encoding='utf-8')
         return file
 
     def run_index(self):
@@ -38,7 +41,7 @@ class StructurePublishTests(unittest.TestCase):
             l.build_index(None)
 
     def seed(self,conflict=False):
-        conn=l.db_connect(self.index)
+        conn=fixture_connect(self.index)
         self.addCleanup(conn.close)
         for source in ('reference-X','a-different-project','target'):
             l.persist_entity(conn,source,'item',{'entry':42,'name':'Blade','class':2,'subclass':7},source+'/base.sql',20)
@@ -77,7 +80,7 @@ class StructurePublishTests(unittest.TestCase):
         for source, part in zip(references, ('repo', 'db', 'repo')):
             self.source(source, part, base + locale)
         self.run_index()
-        with closing(l.db_connect(self.index)) as conn:
+        with closing(fixture_connect(self.index)) as conn:
             self.assertEqual(set(l.reference_sources(conn)), set(references))
             status, detail = l.compare_value(conn, 'item', '42', 'ruRU', 'name')
             self.assertEqual(status, 'MATCH')
@@ -90,7 +93,7 @@ class StructurePublishTests(unittest.TestCase):
 
     def test_source_names_do_not_assign_evidence_roles(self):
         for references in (('source-a', 'source-b'), ('source-a', 'custom-reference-42')):
-            with self.subTest(references=references), closing(l.db_connect(self.index)) as conn:
+            with self.subTest(references=references), closing(fixture_connect(self.index)) as conn:
                 conn.execute('DELETE FROM sources')
                 conn.executemany('INSERT INTO sources VALUES(?,?,?)',
                                  [(source, 'reference', None) for source in references])
@@ -121,7 +124,7 @@ class StructurePublishTests(unittest.TestCase):
         path.rmdir(); path.parent.rmdir()
         for name in ('one','two'):
             self.source(name,'db')
-            (self.root/'externals/references'/name/'source.json').write_text('{"alias_role":"origin"}',encoding='utf-8')
+            (self.root/'externals/references'/name/'source.json').write_text('{"alias_role":"origin","evidence_role":"primary"}',encoding='utf-8')
         with self.assertRaisesRegex(RuntimeError,'Duplicate'): l.source_definitions()
 
     def test_publish_requires_inputs_and_review(self):

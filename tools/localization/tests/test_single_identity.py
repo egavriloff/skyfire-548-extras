@@ -8,13 +8,14 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import localize
+from fixture_roles import fixture_connect
 
 
 class SingleIdentityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.conn = localize.db_connect(self.root / "index.sqlite")
+        self.conn = fixture_connect(self.root / "index.sqlite")
 
     def tearDown(self):
         self.conn.close()

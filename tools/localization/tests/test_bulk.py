@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import localize
+from fixture_roles import fixture_connect
 
 
 class BulkExportTests(unittest.TestCase):
@@ -16,7 +17,7 @@ class BulkExportTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.index = self.root / "index.sqlite"
-        self.conn = localize.db_connect(self.index)
+        self.conn = fixture_connect(self.index)
 
     def tearDown(self):
         self.conn.close()
@@ -161,6 +162,7 @@ class BulkExportTests(unittest.TestCase):
         self.assertLess(sql.index("VALUES (2,"), sql.index("VALUES (10,"))
 
     def test_deterministic_json_report_and_numeric_order(self):
+        localize.evidence_roles.register(self.conn, "source-a", "primary")
         self.entity("target", "item", 10, {"name": "Ten"})
         self.entity("target", "item", 2, {"name": "Two"})
         _, report, first = self.export(directory="first")

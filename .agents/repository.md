@@ -13,7 +13,7 @@ in `porting.md`; localization workflow lives in `localization.md`.
 │       └── <source-id>/
 │           ├── repo/          # optional reference checkout
 │           ├── db/            # optional reference SQL dumps
-│           └── source.json    # optional local evidence roles
+│           └── source.json    # explicit local localization evidence roles
 ├── modules/                   # committed installable modules
 ├── tools/localization/        # committed reusable offline tooling
 ├── localizations/<locale>/    # committed reviewed localization SQL

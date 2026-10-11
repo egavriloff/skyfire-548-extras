@@ -8,12 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import localize
+from fixture_roles import fixture_connect
 
 
 class LocalizationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.conn = localize.db_connect(Path(self.temp.name) / "index.sqlite")
+        self.conn = fixture_connect(Path(self.temp.name) / "index.sqlite")
 
     def tearDown(self):
         self.conn.close()
@@ -141,7 +142,7 @@ class LocalizationTests(unittest.TestCase):
     def test_gossip_base_identity_parser(self):
         key = json.dumps((7, 2))
         for source in ("source-a", "source-b", "target"):
-            conn = localize.db_connect(Path(self.temp.name) / (source + ".sqlite"))
+            conn = fixture_connect(Path(self.temp.name) / (source + ".sqlite"))
             schema = {}
             if source == "source-a":
                 sql = "CREATE TABLE `gossip_menu_option` (`menu_id` int,`id` int,`option_text` text,`option_id` int); INSERT INTO `gossip_menu_option` VALUES (7,2,'Speak',77);"

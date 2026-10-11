@@ -19,6 +19,7 @@ from typing import Iterator, TextIO
 ROOT = Path(__file__).resolve().parents[2]
 sys.dont_write_bytecode = True
 import publishing
+import evidence_roles
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
 LOCALES = {
@@ -379,7 +380,7 @@ class Tokens:
 
 
 def source_definitions() -> dict[str, dict]:
-    """Discover independent repo/db inputs; optional roles only gate fixed aliases."""
+    """Discover inputs and explicit local evidence roles; names never imply trust."""
     result = {}
     core = ROOT / 'externals/core'
     if any((core / part).is_dir() for part in ('repo', 'db')):
@@ -396,9 +397,14 @@ def source_definitions() -> dict[str, dict]:
                 continue
             config_file = directory / 'source.json'
             config = json.loads(config_file.read_text(encoding='utf-8')) if config_file.exists() else {}
-            if not isinstance(config, dict) or set(config) - {'alias_role'} or config.get('alias_role') not in (None, 'origin', 'corroborator'):
+            if not isinstance(config, dict) or set(config) - {'alias_role', 'evidence_role'} or config.get('alias_role') not in (None, 'origin', 'corroborator'):
                 raise RuntimeError(f'Invalid optional evidence role configuration: {config_file}')
-            result[source] = {'path': directory, 'role': 'reference', 'alias_role': config.get('alias_role')}
+            if not isinstance(config.get('evidence_role'), str) or config['evidence_role'] not in evidence_roles.ROLES:
+                raise RuntimeError(f'{source}: source.json requires explicit evidence_role (primary, supplemental, code_schema): {config_file}')
+            if config.get('alias_role') and config['evidence_role'] != 'primary':
+                raise RuntimeError(f'{source}: alias_role requires PRIMARY evidence')
+            result[source] = {'path': directory, 'role': 'reference', 'alias_role': config.get('alias_role'),
+                              'evidence_role': config['evidence_role'], 'config_fingerprint': evidence_roles.fingerprint(config)}
     roles = [value['alias_role'] for value in result.values() if value['alias_role']]
     if len(roles) != len(set(roles)):
         raise RuntimeError('Duplicate alias evidence roles; require at most one origin and one corroborator')
@@ -408,14 +414,25 @@ def source_definitions() -> dict[str, dict]:
 def register_sources(conn: sqlite3.Connection) -> None:
     for source, definition in source_definitions().items():
         conn.execute('INSERT OR REPLACE INTO sources VALUES(?,?,?)', (source, definition['role'], definition['alias_role']))
+        if source != 'target':
+            evidence_roles.register(conn, source, definition['evidence_role'], definition['config_fingerprint'])
 
 
-def reference_sources(conn: sqlite3.Connection) -> tuple[str, ...]:
+def all_reference_sources(conn: sqlite3.Connection) -> tuple[str, ...]:
     registered = conn.execute("SELECT source FROM sources WHERE role='reference' ORDER BY source").fetchall()
     if registered:
         return tuple(row[0] for row in registered)
     rows = conn.execute("SELECT DISTINCT source FROM entities WHERE source<>'target' UNION SELECT DISTINCT source FROM records WHERE source<>'target' UNION SELECT DISTINCT source FROM files WHERE source<>'target' ORDER BY source")
     return tuple(row[0] for row in rows)
+
+
+def reference_sources(conn: sqlite3.Connection) -> tuple[str, ...]:
+    return evidence_roles.sources(conn, 'primary')
+
+
+def data_reference_sources(conn):
+    return tuple(s for s, info in evidence_roles.profile(conn).items()
+                 if info['evidence_role'] in ('primary', 'supplemental'))
 
 
 def alias_reference_pair(conn: sqlite3.Connection) -> tuple[str, str] | None:
@@ -434,6 +451,8 @@ def active_files() -> list[tuple[str, Path, str | None]]:
         raise RuntimeError(f"Не удалось прочитать каталог источников: {error}") from error
 
     for source, definition in source_definitions().items():
+        if definition.get('evidence_role') == 'code_schema':
+            continue
         for location in ("repo", "db"):
             base = definition['path'] / location
             if not base.exists():
@@ -517,6 +536,7 @@ def db_connect(path: Path = INDEX) -> sqlite3.Connection:
     conn.execute("CREATE TABLE IF NOT EXISTS gossip_boxes(source TEXT,entity TEXT,boxtext TEXT,file TEXT,PRIMARY KEY(source,entity))")
     conn.execute("CREATE TABLE IF NOT EXISTS gossip_aux(source TEXT,entity TEXT,table_name TEXT,fields TEXT,file TEXT,PRIMARY KEY(source,entity,table_name))")
     conn.execute('CREATE TABLE IF NOT EXISTS sources(source TEXT PRIMARY KEY,role TEXT NOT NULL,alias_role TEXT)')
+    evidence_roles.create_schema(conn)
     conn.execute('CREATE TABLE IF NOT EXISTS record_origins(source TEXT,kind TEXT,entity TEXT,locale TEXT,table_name TEXT,PRIMARY KEY(source,kind,entity,locale))')
     conn.execute('CREATE TABLE IF NOT EXISTS invalid_values(source TEXT,kind TEXT,entity TEXT,locale TEXT,field TEXT,value TEXT,file TEXT,table_name TEXT,reason TEXT,rank INTEGER,PRIMARY KEY(source,kind,entity,locale,field))')
     conn.execute('CREATE INDEX IF NOT EXISTS invalid_values_entity_idx ON invalid_values(kind,entity,locale)')
@@ -824,7 +844,7 @@ def looks_mojibake(value: str) -> bool:
     return '\ufffd' in value or len(re.findall(r'[\u00d0\u00d1][\u0080-\u00bf\u0152\u0153\u0160\u0161\u0178\u017d\u017e\u0192\u02c6\u02dc\u2010-\u203a\u20ac\u2122]', value)) >= 2
 
 
-def invalid_locale_values(conn, kind, entity, locale):
+def invalid_locale_values(conn, kind, entity, locale, *, all_sources=False):
     kinds = (kind, 'quest_offer_reward', 'quest_request_items') if kind == 'quest' else (kind,)
     try:
         rows = list(conn.execute('SELECT source,kind,entity,field,value,file,table_name,reason FROM invalid_values WHERE kind IN (' + ','.join('?' for _ in kinds) + ') AND entity=? AND locale=? ORDER BY source,kind,field', (*kinds, entity, locale)))
@@ -834,9 +854,10 @@ def invalid_locale_values(conn, kind, entity, locale):
         if 'no such table: invalid_values' in str(exc):
             return []  # Older local indexes remain readable until rebuilt.
         raise
+    allowed = {"target", *(data_reference_sources(conn) if all_sources else reference_sources(conn))}
     return [{'source': s, 'kind': k, 'entity_key': json.loads(key), 'field': 'objective:' + key if k == 'quest_objective' and kind == 'quest' else field,
              'value': value, 'file': file, 'table': table, 'reason': reason, 'status': 'UNSUPPORTED'}
-            for s, k, key, field, value, file, table, reason in rows]
+            for s, k, key, field, value, file, table, reason in rows if s in allowed]
 
 
 def reference_locale_plan(table: str, cols: list[str]) -> tuple[str, tuple[str, ...], dict[str, tuple[str, str]]] :
@@ -1714,7 +1735,7 @@ def build_index(_: argparse.Namespace) -> int:
     conn = db_connect(INDEX)
     register_sources(conn)
     schemas: dict[tuple[str, str], list[str]] = {}
-    counts = {s: 0 for s in (*reference_sources(conn), "target")}
+    counts = {s: 0 for s in (*all_reference_sources(conn), "target")}
     # First pass indexes localized rows, avoiding the cost of decoding every base entity row.
     for source, path, member in sources:
         if not path.exists():
@@ -1730,11 +1751,11 @@ def build_index(_: argparse.Namespace) -> int:
     conn.commit()
     # Base entity indexing is sparse: only IDs with candidate translations are decoded in detail.
     candidates_by_source = {}
-    for source in (*reference_sources(conn), "target"):
+    for source in (*all_reference_sources(conn), "target"):
         ids = {row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE source=? AND kind IN ('item','gameobject','gossip_menu_option')", (source,))}
         ids.update(row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE kind='gossip_menu_option'"))
         if source == "target":
-            for upstream in reference_sources(conn):
+            for upstream in all_reference_sources(conn):
                 ids.update(row[0] for row in conn.execute("SELECT DISTINCT entity FROM records WHERE source=? AND kind IN ('item','gameobject','gossip_menu_option')", (upstream,)))
         candidates_by_source[source] = ids
     for source, path, member in sources:
@@ -1806,10 +1827,11 @@ def get_record(conn: sqlite3.Connection, source: str, kind: str, entity: str, lo
     return fields, ' | '.join(sorted(set(files))), record_table(conn, source, kind, entity, locale)
 
 
-def text_fields_for(conn: sqlite3.Connection, kind: str, entity: str) -> tuple[str, ...]:
+def text_fields_for(conn: sqlite3.Connection, kind: str, entity: str, *, all_sources=False) -> tuple[str, ...]:
     fields = tuple(SPECS[kind]['text_fields'])
     if kind == 'quest':
-        objectives = conn.execute("SELECT DISTINCT entity FROM entities WHERE kind='quest_objective' AND json_extract(fields,'$.questid')=? ORDER BY CAST(entity AS INTEGER)", (json.loads(entity),))
+        selected = ('target', *(data_reference_sources(conn) if all_sources else reference_sources(conn)))
+        objectives = conn.execute("SELECT DISTINCT entity FROM entities WHERE kind='quest_objective' AND json_extract(fields,'$.questid')=? AND source IN (" + ','.join('?' for _ in selected) + ") ORDER BY CAST(entity AS INTEGER)", (json.loads(entity), *selected))
         fields += tuple('objective:' + row[0] for row in objectives)
     return fields
 
@@ -1933,7 +1955,7 @@ def translation_comparison_text(value: str, locale: str) -> str:
     return ''.join(result).strip()
 
 
-def compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str, field: str, *, indexed_provenance: bool = False,
+def _primary_compare_value(conn: sqlite3.Connection, kind: str, entity: str, locale: str, field: str, *, indexed_provenance: bool = False,
                   identity_sources: tuple[str, ...] | None = None, invalid_evidence: list | None = None,
                   _allow_english_fallback: bool = True) -> tuple[str, dict[str, object]]:
     if locale not in LOCALES:
@@ -2035,7 +2057,7 @@ def confirmed_english_fallback_comparisons(conn: sqlite3.Connection, kind: str, 
     if comparisons is None:
         comparisons = {}
         for field in text_fields_for(conn, kind, entity):
-            status, detail = compare_value(conn, kind, entity, locale, field, indexed_provenance=indexed_provenance,
+            status, detail = _primary_compare_value(conn, kind, entity, locale, field, indexed_provenance=indexed_provenance,
                                            _allow_english_fallback=False)
             comparisons[field] = {'status': status, **detail}
     if any(d['status'] == 'UNSUPPORTED' for d in comparisons.values()):
@@ -2083,7 +2105,7 @@ def values_for_kind(conn: sqlite3.Connection, kind: str, entity: str, locales: l
     result = []
     locs = locales or list(LOCALES)
     for locale in locs:
-        for field in text_fields_for(conn, kind, entity):
+        for field in text_fields_for(conn, kind, entity, all_sources=True):
             status, detail = compare_value(conn, kind, entity, locale, field)
             result.append((locale, field, status, detail))
     return result
@@ -2095,14 +2117,15 @@ def command_inspect(args: argparse.Namespace) -> int:
     locales = [args.locale] if args.locale else list(LOCALES)
     with open_index() as conn:
         print(f"{kind} {args.entity_id}")
-        for source in ("target", *reference_sources(conn)):
+        print(json.dumps(evidence_roles.profile(conn), ensure_ascii=False, sort_keys=True))
+        for source in ("target", *all_reference_sources(conn)):
             base = base_entity(conn, source, kind, key)
             print(f"  {source} base: {json.dumps(base, ensure_ascii=False) if base else 'нет'}")
         for locale in locales:
             if locale not in LOCALES:
                 print(f"  {locale}: UNSUPPORTED (неизвестная локаль)")
                 continue
-            for source in ("target", *reference_sources(conn)):
+            for source in ("target", *all_reference_sources(conn)):
                 rec = get_record(conn, source, kind, key, locale)
                 if rec:
                     fields, file, table = rec
@@ -2135,9 +2158,10 @@ def sql_quote(value: object) -> str:
     return "'" + text + "'"
 
 
-def export_rows(conn: sqlite3.Connection, kind: str, entity: str, locales: list[str] | None = None, *, comparisons: dict | None = None,
-                allow_single_identity: bool = False, allow_verified_aliases: bool = False) -> list[str]:
-    ok, reason = identity_ok(conn, kind, entity)
+def _primary_export_rows(conn: sqlite3.Connection, kind: str, entity: str, locales: list[str] | None = None, *, comparisons: dict | None = None,
+                allow_single_identity: bool = False, allow_verified_aliases: bool = False,
+                _identity_sources: tuple[str, ...] | None = None, _fields: tuple[str, ...] | None = None) -> list[str]:
+    ok, reason = identity_ok(conn, kind, entity, _identity_sources)
     single_identity_mode = not ok and kind == "item" and allow_single_identity
     alias_mode = not ok and kind in ("gameobject", "gossip_menu_option") and allow_verified_aliases
     if not ok and not single_identity_mode and not alias_mode:
@@ -2159,8 +2183,8 @@ def export_rows(conn: sqlite3.Connection, kind: str, entity: str, locales: list[
         fields_out = {}
         provenance = []
         statuses = []
-        for field in text_fields_for(conn, kind, entity):
-            status, details = comparisons[(locale, field)] if comparisons is not None else compare_value(
+        for field in (_fields if _fields is not None else text_fields_for(conn, kind, entity)):
+            status, details = comparisons[(locale, field)] if comparisons is not None else _primary_compare_value(
                 conn, kind, entity, locale, field, identity_sources=tuple(alias["identity_sources"]) if alias else (proof["confirmed_upstream"],) if proof else reference_sources(conn))
             statuses.append(status)
             ups = details.get("upstream", {})
@@ -2243,12 +2267,14 @@ def command_manifest(args: argparse.Namespace) -> int:
             for locale, field, status, details in values_for_kind(conn, kind, key, args.locale or list(LOCALES)):
                 results.append({"locale": locale, "field": field, "status": status, **details})
             identity, reason = identity_ok(conn, kind, key)
+            source_evidence = evidence_roles.profile(conn)
         manifest = {
             "target": "SkyFire 5.4.8",
             "entity_type": kind,
             "entity_id": json.loads(key),
             "identity_verified": identity,
             "identity_reason": reason,
+            "source_evidence": source_evidence,
             "locale_mapping": LOCALES,
             "results": results,
         }
@@ -2408,7 +2434,7 @@ def verified_alias(conn: sqlite3.Connection, kind: str, entity: str, locale: str
             "provenance": {source: {"file": row[1], "table": SPECS[kind]["source_table"]} for source, row in records.items() if row}}
 
 
-def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str, *, allow_single_identity: bool = False,
+def _primary_bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str, *, allow_single_identity: bool = False,
                   allow_verified_aliases: bool = False) -> tuple[dict, list[str]]:
     key = json.loads(entity)
     key_parts = key if kind == "gossip_menu_option" and isinstance(key, list) else [key]
@@ -2446,7 +2472,7 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         else:
             # The index does not store upstream revisions. Do not let live Git
             # HEAD alter output from an otherwise unchanged index.
-            status, detail = compare_value(conn, kind, entity, locale, field, indexed_provenance=True,
+            status, detail = _primary_compare_value(conn, kind, entity, locale, field, indexed_provenance=True,
                                           identity_sources=tuple(alias["identity_sources"]) if alias else (proof["confirmed_upstream"],) if proof else reference_sources(conn), invalid_evidence=invalid_evidence,
                                           _allow_english_fallback=False)
             if alias and status in ("MATCH", "SOURCE_ONLY"):
@@ -2468,7 +2494,7 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
             and statuses & {"CONFLICT", "UNSUPPORTED"}):
         status, reason = "PARTIAL", "Экспорт только согласованных полей; заблокированные поля не изменяются"
         prepared = {(locale, field): (detail["status"], {k: v for k, v in detail.items() if k != "status"}) for field, detail in comparisons.items()}
-        sql = export_rows(conn, kind, entity, [locale], comparisons=prepared)
+        sql = _primary_export_rows(conn, kind, entity, [locale], comparisons=prepared)
     elif "UNSUPPORTED" in statuses:
         status = "UNSUPPORTED"
         reason = "Identity не подтверждена: " + identity_reason if candidates and not identity else "Неподдерживаемые localization data"
@@ -2479,17 +2505,17 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         reason = alias["reason"] + ("; экспорт разрешён --allow-verified-aliases" if allow_verified_aliases else "; экспорт требует --allow-verified-aliases")
         if allow_verified_aliases:
             prepared = {(locale, field): (detail["status"], {k: v for k, v in detail.items() if k != "status"}) for field, detail in comparisons.items()}
-            sql = export_rows(conn, kind, entity, [locale], comparisons=prepared, allow_verified_aliases=True)
+            sql = _primary_export_rows(conn, kind, entity, [locale], comparisons=prepared, allow_verified_aliases=True)
     elif "SAFE_SINGLE_IDENTITY" in statuses:
         status = "SAFE_SINGLE_IDENTITY"
         reason = proof["reason"] + ("; экспорт разрешён --allow-single-identity" if allow_single_identity else "; экспорт требует --allow-single-identity")
         if allow_single_identity:
             prepared = {(locale, field): (detail["status"], {k: v for k, v in detail.items() if k != "status"}) for field, detail in comparisons.items()}
-            sql = export_rows(conn, kind, entity, [locale], comparisons=prepared, allow_single_identity=True)
+            sql = _primary_export_rows(conn, kind, entity, [locale], comparisons=prepared, allow_single_identity=True)
     elif statuses & {"MATCH", "SOURCE_ONLY"}:
         status = "SOURCE_ONLY" if "SOURCE_ONLY" in statuses else "MATCH"
         prepared = {(locale, field): (detail["status"], {k: v for k, v in detail.items() if k != "status"}) for field, detail in comparisons.items()}
-        sql = export_rows(conn, kind, entity, [locale], comparisons=prepared)
+        sql = _primary_export_rows(conn, kind, entity, [locale], comparisons=prepared)
         reason = "Безопасный перевод"
     elif "TARGET_IDENTICAL" in statuses:
         status, reason = "TARGET_IDENTICAL", "SkyFire уже содержит совпадающий перевод; SQL не требуется"
@@ -2529,10 +2555,55 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
     return entry, sql
 
 
+
+def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str, *, allow_single_identity=False, allow_verified_aliases=False):
+    return evidence_roles.decide(sys.modules[__name__], conn, kind, entity, locale,
+                                 allow_single_identity=allow_single_identity, allow_verified_aliases=allow_verified_aliases)
+
+
+def compare_value(conn, kind, entity, locale, field, **kwargs):
+    if kwargs:
+        # Explicit proof scopes are internal PRIMARY policy calls.
+        metadata = evidence_roles.validate(conn)
+        status, detail = _primary_compare_value(conn, kind, entity, locale, field, **kwargs)
+        evidence_roles._annotate(detail, metadata)
+        return status, detail
+    if locale == 'enUS' or not evidence_roles.sources(conn, 'supplemental'):
+        metadata = evidence_roles.validate(conn)
+        status, detail = _primary_compare_value(conn, kind, entity, locale, field)
+        evidence_roles._annotate(detail, metadata)
+        return status, detail
+    entry, _ = bulk_decision(conn, kind, entity, locale)
+    detail = dict(entry['fields'].get(field, {'status': 'MISSING'}))
+    observations = [r for r in entry.get('supplemental_observations', []) if r['field'] == field]
+    if observations:
+        detail['supplemental_observations'] = observations
+    return detail['status'], {k: v for k, v in detail.items() if k != 'status'}
+
+
+def export_rows(conn, kind, entity, locales=None, *, allow_single_identity=False, allow_verified_aliases=False, **kwargs):
+    if kwargs:
+        evidence_roles.validate(conn)
+        return _primary_export_rows(conn, kind, entity, locales, allow_single_identity=allow_single_identity,
+                                    allow_verified_aliases=allow_verified_aliases, **kwargs)
+    evidence_roles.validate(conn)
+    if not base_entity(conn, 'target', kind, entity):
+        raise ValueError('Target entity отсутствует')
+    result = []
+    for locale in sorted(set(locales or [x for x in LOCALES if x != 'enUS']), key=lambda x: LOCALES.get(x, -1)):
+        if locale == 'enUS':
+            continue
+        entry, sql = bulk_decision(conn, kind, entity, locale, allow_single_identity=allow_single_identity,
+                                   allow_verified_aliases=allow_verified_aliases)
+        result.extend(sql)
+    return result
+
+
 def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directory: Path, *, allow_single_identity: bool = False,
                 allow_verified_aliases: bool = False) -> dict:
     if locale not in LOCALES or locale == "enUS":
         raise ValueError("export-all поддерживает locale translations; enUS хранится в base entity tables")
+    evidence_roles.validate(conn)
     kinds = sorted(set(kinds))
     if any(kind not in SPECS for kind in kinds):
         raise ValueError("Неподдерживаемый entity type")
@@ -2548,6 +2619,7 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                       "allow_single_identity": allow_single_identity,
                       "allow_verified_aliases": allow_verified_aliases,
                       "counter_units": "entity/locale statuses are mutually exclusive; PARTIAL includes blocked fields; *_fields count field values; identity_failed is included in unsupported; skipped = total_target_entities - exported",
+                      "source_evidence": evidence_roles.profile(conn),
                       "sql_files": {kind: f"{kind}-{locale}.sql" for kind in kinds}}
             report.write(json.dumps(header, ensure_ascii=False, sort_keys=True, indent=2)[:-2] + ',\n  "entries": [\n')
             first_entry = True
@@ -2577,7 +2649,7 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                             sql_file.write("\n".join(statements) + "\n")
                         else:
                             counts["skipped"] += 1
-                        if kind == 'quest' or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
+                        if kind == 'quest' or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
                             if not first_entry:
                                 report.write(",\n")
                             first_entry = False

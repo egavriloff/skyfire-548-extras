@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import localize
+from fixture_roles import fixture_connect
 
 JOIN = "UPDATE gossip_menu_option gmo LEFT JOIN gossip_menu_option_action gmoa ON gmo.MenuID=gmoa.MenuId AND gmo.OptionID=gmoa.OptionIndex LEFT JOIN gossip_menu_option_box gmob ON gmo.MenuId=gmob.MenuId AND gmo.OptionID=gmob.OptionIndex SET gmo.ActionMenuID=COALESCE(gmoa.ActionMenuId,0),gmo.BoxText=gmob.BoxText;"
 
@@ -17,7 +18,7 @@ class VerifiedAliasTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.conn = localize.db_connect(self.root / "index.sqlite")
+        self.conn = fixture_connect(self.root / "index.sqlite")
         self.conn.executemany('INSERT INTO sources VALUES(?,?,?)', [('source-a','reference','origin'),('source-b','reference','corroborator')])
         self.fixtures = json.loads((Path(__file__).parent / "fixtures/verified-aliases.json").read_text(encoding="utf-8"))
 
@@ -215,10 +216,12 @@ class VerifiedAliasTests(unittest.TestCase):
             path=self.root/("externals/core" if source == "target" else f"externals/references/{source}")/"db/world.sql"
             path.parent.mkdir(parents=True)
             path.write_text(contents,encoding="utf-8")
+            if source != "target":
+                (path.parent.parent / "source.json").write_text('{"evidence_role":"primary"}',encoding="utf-8")
         index=self.root/"bootstrap.sqlite"
         with patch.object(localize,"ROOT",self.root), patch.object(localize,"WORKSPACE",self.root/".tmp/localization"), patch.object(localize,"INDEX",index), redirect_stdout(StringIO()):
             self.assertEqual(localize.build_index(None),0)
-        conn=localize.db_connect(index)
+        conn=fixture_connect(index)
         try:
             base=localize.base_entity(conn,"source-b","gossip_menu_option",json.dumps([0,1]))
             self.assertEqual(base["optiontype"],3)

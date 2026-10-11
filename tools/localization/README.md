@@ -10,6 +10,8 @@ Prepare target source at externals/core/repo/ and optional target World DB SQL a
 externals/core/db/. Prepare any number of externals/references/<source-id>/ inputs:
 repo/ and db/ are independently optional; at least one must exist. Neutral examples:
 externals/references/source-a/repo/ and externals/references/source-b/db/.
+Each reference requires a local source.json with an explicit evidence_role; see
+[Source evidence roles](#source-evidence-roles).
 
 ```sh
 python tools/localization/localize.py index
@@ -38,9 +40,55 @@ python tools/localization/localize.py export-manifest quest 934 --locale ruRU --
 python -m unittest discover -s tools/localization/tests -v
 ```
 
+## Source evidence roles
+
+Set externals/references/<source-id>/source.json explicitly, for example:
+
+```json
+{"evidence_role": "primary"}
+```
+
+Roles are primary, supplemental, and code_schema. Source IDs are arbitrary and
+never establish trust. Missing, invalid, or unknown roles fail discovery before
+replacing the index. Existing indexes without saved roles/fingerprints remain
+inspectable but comparison/export fail closed. Configure each reference and run
+index explicitly when ready; roles are never retroactively inferred from names.
+The index snapshots role and SHA-256 of canonical source config JSON. Reports and
+field provenance retain this snapshot; changing source.json requires reindexing.
+
+PRIMARY retains existing identity, conflict, normalization, target protection,
+field-level quest and opt-in exception policies. Its selected raw fields and SQL
+statements are frozen before considering supplemental evidence.
+
+SUPPLEMENTAL can fill only PRIMARY MISSING fields. Its own target entity identity
+and the particular English base field must both pass existing strict comparisons.
+One eligible donor gives SOURCE_ONLY; agreeing donors give MATCH. Conflicting
+supplemental values block the missing slot. Invalid or unproven observations are
+retained without acquiring a vote. PRIMARY CONFLICT/UNSUPPORTED is never repaired
+by supplemental evidence, and differing evidence cannot veto a PRIMARY export.
+Nonempty target fields are never overwritten. Missing primary base evidence does
+not establish proof; available contradictory primary base evidence blocks additions.
+
+Quest additions are independent per field; blocked fields remain untouched.
+Objective descriptions require strict objective identity and admissible parent
+quest identity. Non-quest supplemental bundles retain atomic conflict handling;
+a blocked supplemental bundle never removes the existing PRIMARY SQL.
+
+For ruRU supplemental additions only, a candidate equal to its proven target
+English field under the existing translation comparison is excluded with reason
+CONFIRMED_ENGLISH_FALLBACK. No language detection or Latin-character heuristic
+is used. Original values, English proof, role/config fingerprint and provenance
+remain in supplemental_observations; SQL uses unmodified accepted donor text.
+Supplemental statements append after the original PRIMARY statements.
+
+code_schema sources are registered for diagnostics but their SQL is not indexed
+as donor data and cannot vote. alias_role is an optional, separate PRIMARY-only
+fixed-proof role, never a replacement for evidence_role. No local config is committed.
+
 ## Matching and target tables
 
-All discovered references participate; a directory name is not trust evidence.
+Only explicitly configured PRIMARY references participate in the existing policy;
+a directory name is not trust evidence.
 Every donor needs base identity, not just a numeric ID. MATCH means two or more
 available values agree; SOURCE_ONLY means one donor supplies a value. Other statuses:
 TARGET_IDENTICAL, CONFLICT, MISSING, UNSUPPORTED. Quest export is field-level:
@@ -140,13 +188,13 @@ mandatory. Explicitly assign the two required local evidence roles
 in externals/references/<source-id>/source.json:
 
 ```json
-{"alias_role": "origin"}
+{"evidence_role": "primary", "alias_role": "origin"}
 ```
 
-The other reference uses {"alias_role":"corroborator"}. These describe a fixed
+The other PRIMARY reference uses {"evidence_role":"primary","alias_role":"corroborator"}. These describe a fixed
 proof pattern, not vendor names or general trust. Exactly one origin and one
 corroborator are required; missing/duplicate roles disable aliases. Additional
-references are allowed: missing data is neutral, available base/structural/broadcast
+PRIMARY references are allowed: missing data is neutral, available base/structural/broadcast
 evidence must agree with the fixed proof, and nonempty translations must match.
 Conflicting evidence blocks the alias. Neither flag applies to creature/quest. Reports and
 SQL preserve proof and explicit opt-in flags.

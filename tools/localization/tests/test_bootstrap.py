@@ -30,6 +30,8 @@ class BootstrapTests(unittest.TestCase):
         file = self.root / ("externals/core" if source == "target" else "externals/references/" + source) / path
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(content, encoding="utf-8")
+        if source != "target":
+            (self.root / "externals/references" / source / "source.json").write_text('{"evidence_role":"primary"}', encoding="utf-8")
         return file
 
     def run_index(self):
@@ -95,6 +97,7 @@ class BootstrapTests(unittest.TestCase):
     def test_zip_discovery_and_member_exclusions(self):
         path = self.root / "externals/references/source-a/repo/sql/base/world.zip"
         path.parent.mkdir(parents=True)
+        (self.root / "externals/references/source-a/source.json").write_text('{"evidence_role":"primary"}',encoding="utf-8")
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("active/world.SQL", self.item_sql("Архив"))
             archive.writestr("nested/old/world.sql", self.item_sql("Старое"))

@@ -18,4 +18,4 @@ exist for a usable source. Tooling discovers references dynamically.
 
 Use neutral names such as source-a and source-b. External inputs are read-only
 during research. The target checkout and target SQL are authoritative. See the
-[localization guide](../tools/localization/README.md) for optional local evidence roles.
+[localization guide](../tools/localization/README.md) for required local localization evidence_role configuration and optional alias roles.

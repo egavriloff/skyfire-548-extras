@@ -25,8 +25,14 @@ or weaken matching policy without explicit authorization.
 ## Compare and review
 
 Index, generate review SQL, and use inspect/compare/export-manifest for conflicts.
-All discovered references participate. SOURCE_ONLY requires its donor's identity.
-CONFLICT/UNSUPPORTED block bulk entity/locale export. Missing targets, uncertain
+Only explicitly configured PRIMARY references participate in the existing policy.
+SOURCE_ONLY requires its donor's identity. SUPPLEMENTAL can fill only MISSING
+fields with strict target identity and field-specific English proof; it cannot
+resolve PRIMARY conflicts/unsupported data or veto existing PRIMARY exports.
+Keep role/config fingerprint and rejected observations in provenance. See the
+toolkit README for canonical role configuration and fallback exclusion rules.
+CONFLICT/UNSUPPORTED block the affected fields for quests and the entity/locale
+for other types; preserve existing field-level quest behavior. Missing targets, uncertain
 identity and differing nonempty target translations must remain excluded.
 Preserve existing SAFE_SINGLE_IDENTITY and VERIFIED_ALIAS opt-in requirements,
 fixed patterns and structural checks. Explicit local evidence roles gate aliases;
