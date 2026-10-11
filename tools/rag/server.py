@@ -14,12 +14,37 @@ ROOT = Path(__file__).resolve().parents[2]
 
 CACHE = ROOT / ".tmp" / "cache" / "code-index"
 
-MODEL = "text-embedding-nomic-embed-text-v1.5"
+PROVIDER = os.getenv("RAG_PROVIDER", "ollama").lower()
 
-API_URL = os.getenv(
-    "LM_STUDIO_URL",
-    "http://127.0.0.1:1234/v1"
-)
+if PROVIDER == "ollama":
+    MODEL = os.getenv(
+        "RAG_EMBEDDING_MODEL",
+        "qwen-embed-2k",
+    )
+    API_URL = os.getenv(
+        "RAG_EMBEDDING_URL",
+        "http://127.0.0.1:11434/v1",
+    )
+    INDEX_NAME = "skyfire-qwen3-06b"
+    API_KEY = "ollama"
+
+elif PROVIDER == "lmstudio":
+    MODEL = os.getenv(
+        "RAG_EMBEDDING_MODEL",
+        "text-embedding-nomic-embed-text-v1.5",
+    )
+    API_URL = os.getenv(
+        "RAG_EMBEDDING_URL",
+        "http://127.0.0.1:1234/v1",
+    )
+    INDEX_NAME = "skyfire-nomic"
+    API_KEY = "lm-studio"
+
+else:
+    raise ValueError(
+        f"Unsupported RAG provider: {PROVIDER}"
+    )
+
 
 SEARCH_ROOTS = [
     ROOT / "modules",
@@ -60,7 +85,7 @@ mcp = MCPServer("skyfire-rag")
 
 openai_client = OpenAI(
     base_url=API_URL,
-    api_key="lm-studio",
+    api_key=API_KEY,
     timeout=120,
 )
 
@@ -78,7 +103,10 @@ def relative(path: Path) -> str:
 
 
 def iter_source_files():
-    """Iterate through C++ source files in modules and core."""
+    """
+    Iterate through C++ source files
+    in modules and core.
+    """
 
     for root in SEARCH_ROOTS:
         if not root.is_dir():
@@ -98,6 +126,24 @@ def iter_source_files():
                     yield path
 
 
+def prepare_query(query: str) -> str:
+    """
+    Prepare query for the selected embedding model.
+    """
+
+    if PROVIDER == "ollama":
+        return (
+            "Instruct: Retrieve relevant C++ source code "
+            "for the given development task.\n"
+            f"Query: {query}"
+        )
+
+    if PROVIDER == "lmstudio":
+        return f"search_query: {query}"
+
+    return query
+
+
 # ============================================================
 # Tool: Semantic search
 # ============================================================
@@ -110,8 +156,8 @@ def search_code(
     """
     Search SkyFire source code by semantic meaning.
 
-    Uses Nomic embeddings from LM Studio and a local
-    ChromaDB index.
+    Uses the selected embedding provider
+    and a local ChromaDB collection.
 
     Returns relevant code fragments with source paths,
     line numbers and vector distances.
@@ -124,7 +170,7 @@ def search_code(
 
     try:
         collection = chroma.get_collection(
-            name="skyfire-code"
+            name=INDEX_NAME
         )
 
         count = collection.count()
@@ -135,9 +181,11 @@ def search_code(
                 "Run tools/rag/index.py first."
             )
 
+        query_text = prepare_query(query)
+
         response = openai_client.embeddings.create(
             model=MODEL,
-            input=f"search_query: {query}",
+            input=query_text,
         )
 
         vector = response.data[0].embedding
@@ -178,7 +226,10 @@ def search_code(
         )
 
     except Exception as error:
-        return f"Semantic search failed: {error}"
+        return (
+            f"Semantic search failed "
+            f"[{PROVIDER}/{MODEL}]: {error}"
+        )
 
 
 # ============================================================
