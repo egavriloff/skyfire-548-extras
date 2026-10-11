@@ -1,0 +1,3 @@
+[submodule "externals/core/repo"]
+	path = externals/core/repo
+	url = https://github.com/ProjectSkyfire/SkyFire_548.git

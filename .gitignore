@@ -4,8 +4,11 @@
 
 /externals/core/*
 !/externals/core/.gitkeep
+!/externals/core/repo
+
 /externals/references/*
 !/externals/references/.gitkeep
 
 compile_commands.json
 opencode.json
+opencode.*.json
