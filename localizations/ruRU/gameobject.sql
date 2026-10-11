@@ -2434,6 +2434,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VAL
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (19101,'Логово Ониксии','Изучение') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Логово Ониксии',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Изучение',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (19124,'Тенеклык') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Тенеклык',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (19230,'Пиратский корабль') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Пиратский корабль',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (19251,'Лаборатория','Изучение') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Лаборатория',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Изучение',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -2496,6 +2498,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VAL
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (19395,'Шипастая стена','Изучение') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Шипастая стена',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Изучение',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (19403,'Мост 4','Изучение') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Мост 4',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Изучение',`castbarcaption_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (19406,'Лавовый мост') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Лавовый мост',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (19411,'Дым','Изучение') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Дым',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Изучение',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -2632,6 +2636,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (19603,'Бумаг
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (19611,'Грифоний насест') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Грифоний насест',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (19614,'Бомба','Изучение') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Бомба',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Изучение',`castbarcaption_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (19615,'Динамит') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Динамит',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (19619,'Цыганская кибитка','Изучение') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Цыганская кибитка',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Изучение',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -40904,6 +40910,10 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (208000,'Нежн�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (208001,'Сеятель Гнили') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Сеятель Гнили',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (208002,'Телепорт гоблинов') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Телепорт гоблинов',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (208044,'Тайник Праматери') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Тайник Праматери',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (208045,'Тайник Праматери') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Тайник Праматери',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (208046,'Шишка Скверны') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Шишка Скверны',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -41906,6 +41916,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (209541,'Малы�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (209547,'Ларец времени Дорнозму') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Ларец времени Дорнозму',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (209578,'Нестабильный соленоид') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Нестабильный соленоид',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (209582,'Свиток Печали') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Свиток Печали',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (209584,'Древний моллюск') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Древний моллюск',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -42118,8 +42130,16 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210012,'Doodad_In
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210013,'Doodad_InstancePortal_Green_25Man_Heroic01') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Doodad_InstancePortal_Green_25Man_Heroic01',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210014,'Doodad_InstancePortal_PurpleDifficulty04') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Doodad_InstancePortal_PurpleDifficulty04',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210015,'Оружейная стойка') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Оружейная стойка',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210016,'Оружейная стойка') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Оружейная стойка',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210017,'Оружейная стойка') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Оружейная стойка',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210018,'Оружейная стойка') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Оружейная стойка',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210019,'Оружейная стойка') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Оружейная стойка',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210020,'Оружейная стойка') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Оружейная стойка',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -42388,6 +42408,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210948,'Кост�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210953,'Почтовый ящик') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Почтовый ящик',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210955,'Ритуальная свеча Куньцзэнь') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Ритуальная свеча Куньцзэнь',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (210961,'[Boat Planks]') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','[Boat Planks]',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (210971,'Лиловый лишайник','Сбор') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Лиловый лишайник',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Сбор',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -42510,6 +42532,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VAL
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (211400,'Сломанный стебель бамбука','Сбор') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Сломанный стебель бамбука',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Сбор',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (211401,'Сломанный стебель бамбука','Сбор') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Сломанный стебель бамбука',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Сбор',`castbarcaption_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (211415,'[Hozen in the Mist]') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','[Hozen in the Mist]',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (211420,'Груда песка','Выкопать росток') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Груда песка',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Выкопать росток',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -43584,6 +43608,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213271,'Doodad_PA
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213286,'Древняя дверь могу') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Древняя дверь могу',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (213289,'Клетка Шао-Тень','Открывание') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Клетка Шао-Тень',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Открывание',`castbarcaption_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213290,'Урна с сокровищами') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Урна с сокровищами',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213291,'Реликвия могу') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Реликвия могу',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -43718,6 +43744,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213460,'Сама�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213461,'"Странствующая вдова"') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','"Странствующая вдова"',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213462,'Экземпляр книги "Бремя императора, ч. V"') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Экземпляр книги "Бремя императора, ч. V"',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213463,'Ведро воды из деревни Туманного Водопада') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Ведро воды из деревни Туманного Водопада',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213466,'Почтовый ящик') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Почтовый ящик',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -43738,6 +43766,14 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213508,'Лову�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213511,'"Победа на Кунь-Лай"') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','"Победа на Кунь-Лай"',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213512,'Синь Во Инь Разбитое Сердце') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Синь Во Инь Разбитое Сердце',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`castbarcaption_loc8`,`name_loc8`) VALUES (213517,'Сбор','Идол злой обезьяны') ON DUPLICATE KEY UPDATE `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Сбор',`castbarcaption_loc8`), `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Идол злой обезьяны',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`castbarcaption_loc8`,`name_loc8`) VALUES (213518,'Сбор','Краденая пушка') ON DUPLICATE KEY UPDATE `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Сбор',`castbarcaption_loc8`), `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Краденая пушка',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`castbarcaption_loc8`,`name_loc8`) VALUES (213519,'Сбор','Проклятый тотем хозенов') ON DUPLICATE KEY UPDATE `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Сбор',`castbarcaption_loc8`), `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Проклятый тотем хозенов',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`castbarcaption_loc8`,`name_loc8`) VALUES (213520,'Сбор','Бесценный артефакт могу') ON DUPLICATE KEY UPDATE `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Сбор',`castbarcaption_loc8`), `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Бесценный артефакт могу',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213532,'Turtle Flipper, Right') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Turtle Flipper, Right',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -43960,6 +43996,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213758,'Репа'
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213759,'Тыква') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Тыква',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213760,'Тыква') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Тыква',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213762,'Костер') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Костер',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (213763,'Костер') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Костер',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -44378,6 +44416,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VAL
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (214481,'Блестящее яйцо','Сбор') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Блестящее яйцо',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Сбор',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (214482,'Почтовый ящик') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Почтовый ящик',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (214499,'Костер') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Костер',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (214505,'Жаровня') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Жаровня',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -44620,6 +44660,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VAL
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (214845,'Кружка с варевом Уна') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Кружка с варевом Уна',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (214862,'Небольшая кучка','Очистка') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Небольшая кучка',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Очистка',`castbarcaption_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (214863,'Небольшая кучка') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Небольшая кучка',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (214864,'Костер') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Костер',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -45168,6 +45210,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (215844,'Древ�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (215851,'Факел туманного шамана') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Факел туманного шамана',`name_loc8`);
 -- ruRU; source: emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (215855,'История Сокрытой лестницы') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','История Сокрытой лестницы',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (215858,'Пандаренский костер') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Пандаренский костер',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (215859,'Sha GroundPatch Small Tendrils') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Sha GroundPatch Small Tendrils',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -45184,6 +45228,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (215866,'Тоте�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (215867,'Черепа яунголов') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Черепа яунголов',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (215870,'Лягушачий остров') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Лягушачий остров',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (215872,'Алебарда Невредимого') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Алебарда Невредимого',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (215874,'Кулек конфет') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Кулек конфет',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -45340,6 +45386,10 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216148,'Beastmast
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216149,'Beastmaster Pit - Horde - Crane Cage') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Beastmaster Pit - Horde - Crane Cage',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216150,'Ящик с припасами Орды') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Ящик с припасами Орды',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`castbarcaption_loc8`) VALUES (216150,'Уничтожение') ON DUPLICATE KEY UPDATE `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Уничтожение',`castbarcaption_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216160,'Каменный обломок') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Каменный обломок',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216161,'Куча грязи') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Куча грязи',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -45432,12 +45482,18 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VAL
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216630,'Наковальня') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Наковальня',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (216664,'Потрепанный дневник','Похищение') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Потрепанный дневник',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Похищение',`castbarcaption_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216716,'Глыба заряженной железной руды') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Глыба заряженной железной руды',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216723,'Стойка с воздушными змеями') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стойка с воздушными змеями',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216751,'Ржавый вентиль') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Ржавый вентиль',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216757,'"Старик Жи и миллион душ"') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','"Старик Жи и миллион душ"',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216838,'Костер') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Костер',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (216990,'Большой костер') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Большой костер',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (217331,'Подставка для ног Андуина') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Подставка для ног Андуина',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -45468,6 +45524,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VAL
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (218055,'Осененный лоа клинок','Кража') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Осененный лоа клинок',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Кража',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (218056,'Осененный лоа клинок','Кража') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Осененный лоа клинок',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Кража',`castbarcaption_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218070,'Костер') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Костер',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (218072,'Голова хранителя ключей','Изучение') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Голова хранителя ключей',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Изучение',`castbarcaption_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -45480,6 +45538,38 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218075,'Воло�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218076,'Туловище хранителя ключей') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Туловище хранителя ключей',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`,`castbarcaption_loc8`) VALUES (218077,'Постамент хранителя ключей','Изучение') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Постамент хранителя ключей',`name_loc8`), `castbarcaption_loc8`=IF(`castbarcaption_loc8` IS NULL OR `castbarcaption_loc8`='','Изучение',`castbarcaption_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218197,'Мощная взрывчатка') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Мощная взрывчатка',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218209,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218210,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218211,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218212,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218213,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218214,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218215,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218216,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218217,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218218,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218219,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218220,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218221,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218222,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218223,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218230,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -45568,10 +45658,30 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218271,'Стул'
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218272,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218273,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218318,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218319,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218320,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218321,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218322,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218323,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218324,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218325,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218326,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218327,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218328,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218329,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218330,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
@@ -45616,16 +45726,54 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218349,'Стул'
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218350,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218351,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218352,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218353,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218354,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218355,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218356,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218357,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218358,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218359,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218360,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218361,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218362,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218363,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218364,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218365,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218366,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218367,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218368,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218369,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218370,'Стул') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стул',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218462,'Портал на Остров Грома') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Портал на Остров Грома',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218463,'Портал на Остров Грома') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Портал на Остров Грома',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218494,'Костер') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Костер',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218652,'Косяк сверкающего бриллиантового данио') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Косяк сверкающего бриллиантового данио',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218653,'Большой косяк сверкающего бриллиантового данио') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Большой косяк сверкающего бриллиантового данио',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (218750,'Заказы') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Заказы',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -45788,8 +45936,12 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (219227,'Удач�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (219353,'Стол с хмелем глубоких раздумий') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стол с хмелем глубоких раздумий',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (220068,'Почтовый ящик') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Почтовый ящик',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (220087,'Стопка книг') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Стопка книг',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (220175,'Телепорт гоблинов') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Телепорт гоблинов',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (220196,'Урна с сокровищами') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Урна с сокровищами',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (220364,'Doodad_Orgrimmar_Elevator_004') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Doodad_Orgrimmar_Elevator_004',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -46002,6 +46154,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (221763,'Огне�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (221764,'Жареное семя') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Жареное семя',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (221775,'Жаровня') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Жаровня',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (221776,'Слезы Дола') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Слезы Дола',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (221784,'Зазубренные железные ворота') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Зазубренные железные ворота',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
@@ -46564,6 +46718,8 @@ INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (223287,'Мото�
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (223389,'Большой костер') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Большой костер',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject | loap@revision-unverified:externals/references/loap/db/world_548_20240722.sql:gameobject_template_locale
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (223425,'Катапульта') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Катапульта',`name_loc8`);
+-- ruRU; source: spp@revision-unverified:externals/references/spp/db/world.sql:locales_gameobject
+INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (223498,'Долговая расписка') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Долговая расписка',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject
 INSERT INTO `locales_gameobject` (`entry`,`name_loc8`) VALUES (223501,'Небесная дверь') ON DUPLICATE KEY UPDATE `name_loc8`=IF(`name_loc8` IS NULL OR `name_loc8`='','Небесная дверь',`name_loc8`);
 -- ruRU; source: alexkulya@revision-unverified:externals/references/alexkulya/db/2026_08_16_world.sql:gameobject_template_locale | emucoach@revision-unverified:externals/references/emucoach/db/world.sql:locales_gameobject

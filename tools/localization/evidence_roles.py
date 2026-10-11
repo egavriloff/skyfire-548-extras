@@ -64,6 +64,10 @@ def field_english_proof(api, conn, source, kind, entity, field):
     if not origin or not target:
         return False, origin, target
     a, b = origin['value'], target['value']
+    if kind == 'npc_text':
+        if not api.npc_text.field_match(api, api.base_entity(conn,source,kind,entity), api.base_entity(conn,'target',kind,entity),field):
+            return False, origin, target
+        a, b = api.quest_identity_text(a), api.quest_identity_text(b)
     if kind == 'quest':
         a, b = api.quest_identity_text(a, field=field), api.quest_identity_text(b, field=field)
     elif field in ('name', 'optiontext'):
@@ -74,6 +78,8 @@ def field_english_proof(api, conn, source, kind, entity, field):
 def _annotate(detail, metadata):
     provenance = detail.get('provenance', {})
     detail['provenance'] = {s: {**v, **metadata.get(s, {})} for s, v in provenance.items()}
+    for rejection in detail.get('rejected_english_fallbacks', []):
+        rejection['provenance'] = {**rejection.get('provenance', {}), **metadata.get(rejection.get('source'), {})}
 
 
 def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allow_verified_aliases=False):
@@ -94,7 +100,7 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
         return entry, sql
     target = api.base_entity(conn, 'target', kind, entity)
     valid_key = api.valid_entity_key(kind, json.loads(entity))
-    primary_contradiction = bool(target and any(base is not None and not api.identities_match(kind, base, target)
+    primary_contradiction = bool(kind != 'npc_text' and target and any(base is not None and not api.identities_match(kind, base, target)
                               for s in api.reference_sources(conn) if (base := api.base_entity(conn, s, kind, entity)) is not None))
     records = {s: api.get_record(conn, s, kind, entity, locale) for s in supplemental}
     invalid = [r for r in api.invalid_locale_values(conn, kind, entity, locale, all_sources=True) if r['source'] in supplemental]
@@ -137,6 +143,8 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
                 reason = 'TARGET_NONEMPTY'
             elif bad:
                 reason = 'INVALID_LOCALE_VALUE'
+            elif kind == 'npc_text' and rec and field in rec[0].get('_adapter_conflicts',{}):
+                reason = 'SUPPLEMENTAL_ADAPTER_CONFLICT'
             elif not isinstance(value, str):
                 reason = 'NON_TEXT_LOCALE_VALUE'
             elif not identity:
@@ -178,7 +186,7 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
         elif any(r['reason'] in ('INVALID_LOCALE_VALUE', 'NON_TEXT_LOCALE_VALUE') for r in field_observations):
             bundle_blocked = True
         observations.extend(field_observations)
-    if bundle_blocked and kind != 'quest':
+    if bundle_blocked and kind not in ('quest','npc_text'):
         for row in observations:
             if row['reason'].startswith('ACCEPTED_'):
                 row['reason'] = 'SUPPLEMENTAL_BUNDLE_BLOCKED'
@@ -203,7 +211,7 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
             entry['status'] = 'CONFLICT' if any(r['reason'] == 'SUPPLEMENTAL_TRANSLATION_CONFLICT' for r in observations) else 'UNSUPPORTED'
             entry['reason'] = 'Supplemental evidence blocked; PRIMARY decision remains unchanged'
     entry['supplemental_exported_fields'] = sorted(selected)
-    if kind == 'quest':
+    if kind in ('quest','npc_text'):
         entry['exported_fields'] = sorted(set(original['exported_fields']) | set(selected))
         for field in selected:
             entry['fields'][field]['exported'] = True

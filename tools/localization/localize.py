@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.dont_write_bytecode = True
 import publishing
 import evidence_roles
+import npc_text
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
 LOCALES = {
@@ -70,6 +71,12 @@ for kind, entity, target, idcol, fields in (
                    'text_fields': {f: f for f in fields}, 'source_target_fields': {f: f for f in fields},
                    'wide_fields': {f: f + '_loc{n}' for f in fields}}
 
+SPECS['npc_text'] = {'source_table':'npc_text_locale', 'target_table':'locales_npc_text',
+    'target_entity':'npc_text', 'entity_fields':('id',), 'source_id':'id', 'target_id':'id',
+    'source_locale':'locale', 'text_fields':{f:f for f in npc_text.TEXT_FIELDS},
+    'source_target_fields':{f:f for f in npc_text.TEXT_FIELDS},
+    'wide_fields':{f:f+'_loc{n}' for f in npc_text.TEXT_FIELDS}}
+
 # Internal quest parts; these are not separate CLI entity types.
 QUEST_PARTS = {
     'quest_offer_reward': ('quest_offer_reward_locale', 'offerrewardtext', 'rewardtext'),
@@ -80,6 +87,9 @@ INTERNAL_SPECS = {kind: {'source_table': table, 'target_table': 'locales_quest_o
                        'target_entity': kind, 'entity_fields': ('id',), 'source_id': 'id', 'target_id': 'id',
                        'source_locale': 'locale', 'text_fields': {field: field}, 'source_target_fields': {field: col}, 'wide_fields': {}}
                   for kind, (table, field, col) in QUEST_PARTS.items()}
+INTERNAL_SPECS[npc_text.BROADCAST_KIND] = {'source_table':'broadcast_text_locale','target_table':'broadcast_text_locale',
+    'target_entity':'broadcast_text','entity_fields':('id',),'source_id':'id','target_id':'id','source_locale':'locale',
+    'text_fields':{'text':'text','text1':'text1'},'source_target_fields':{'text':'text','text1':'text1'},'wide_fields':{}}
 ALL_SPECS = {**SPECS, **INTERNAL_SPECS}
 REFERENCE_LOCALE_TABLES = {s['target_table']: k for k, s in ALL_SPECS.items()
                           if s['wide_fields'] or k == 'quest_objective'}
@@ -98,6 +108,10 @@ def locale_table_kind(table: str) -> str | None:
 
 def canonical_row(kind: str, row: dict) -> dict:
     row = dict(row)
+    if kind == 'npc_text':
+        row = npc_text.canonical(row)
+    if kind == npc_text.BROADCAST_KIND:
+        row = npc_text.broadcast_canonical(row)
     if kind == 'creature' and 'title' in row:
         row['subname'] = row['title']
     if kind == 'creature' and 'npc_rank' in row:
@@ -749,6 +763,10 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
 
 def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
     row = canonical_row(kind, row)
+    if kind == 'npc_text':
+        return {k:v for k,v in row.items() if k != 'id'}
+    if kind == npc_text.BROADCAST_KIND:
+        return {k:row[k] for k in ('text','text1','languageid') if k in row}
     if kind == 'creature':
         return {k: row[k] for k in ('name', 'subname', *CREATURE_STRUCT) if k in row}
     if kind == 'quest':
@@ -772,6 +790,8 @@ def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
 
 
 def valid_entity_key(kind, key):
+    if kind == 'npc_text' and key == 0:
+        return False  # LoadGossipText reserves zero.
     parts = key if kind == 'gossip_menu_option' and isinstance(key, (tuple, list)) else (key,)
     return (kind != 'gossip_menu_option' or len(parts) == 2) and all(type(v) is int and v >= 0 for v in parts)
 
@@ -936,13 +956,15 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
         return
     locale_tables = {spec["target_table"] if source == "target" else spec["source_table"] for spec in ALL_SPECS.values()}
     if source == 'target':
-        locale_tables.difference_update(('quest_offer_reward_locale', 'quest_request_items_locale'))
+        locale_tables.difference_update(('quest_offer_reward_locale', 'quest_request_items_locale','broadcast_text_locale'))
     if source != 'target':
         locale_tables.update(('quest_objectives_locale', 'creature_template_wdb_locale'))
         locale_tables.update(REFERENCE_LOCALE_TABLES)
     entity_tables = {spec["target_entity"] for spec in ALL_SPECS.values()} | {"gossip_menu_option_box", "gossip_menu_option_action"}
     if source != "target":
         entity_tables.update(("creature_template_wdb", "quest_objectives"))
+    if source == 'target':
+        entity_tables.discard('broadcast_text')
     relevant = locale_tables if phase == "locales" else entity_tables
     if table not in relevant:
         t.skip_raw_statement()
@@ -1001,7 +1023,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     while True:
         x = t.get()
         if x[0] == "(":
-            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', *QUEST_PARTS):
+            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'broadcast_text', *QUEST_PARTS):
                 first_index = next((cols.index(c) for c in ("entry", "menuid", "menu_id", "id") if c in cols), -1)
                 if table in ('gossip_menu_option', 'gossip_menu_option_box', 'gossip_menu_option_action') and (len(cols) < 2 or cols[0] not in ('menuid', 'menu_id') or cols[1] not in ('optionid', 'optionindex', 'id')):
                     first_index = -1  # Sparse composite reads require proven column order.
@@ -1441,7 +1463,10 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
     if table == 'quest_objectives':
         mapped = identity_fields(kind, {column: 0})
         return (next(iter(mapped)), 'entity') if mapped else None
-    if kind in ('creature', 'quest', *QUEST_PARTS):
+    if kind == 'npc_text' and table == 'npc_text':
+        column = re.sub(r'^probability', 'prob', column)
+        return (column, 'entity') if column in (*npc_text.TEXT_FIELDS, *(f'{prefix}{i}' for prefix in ('prob','lang','broadcasttextid') for i in range(npc_text.OPTIONS))) else None
+    if kind in ('creature', 'quest', 'npc_text', npc_text.BROADCAST_KIND, *QUEST_PARTS):
         if table == spec['target_entity']:
             mapped = identity_fields(kind, {column: 0})
             return (next(iter(mapped)), 'entity') if mapped else None
@@ -1712,7 +1737,7 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
                 raise ValueError("UPDATE не применён")
     except (ValueError, IndexError) as exc:
         parser_warning(conn, source, file, f"UPDATE {table}: {exc}")
-        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective"):
+        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective", "npc_text", npc_text.BROADCAST_KIND):
             condition, params = "1", []
             try:
                 marker = next(i for i, token in enumerate(tokens) if token[1].upper() == "WHERE")
@@ -1768,6 +1793,7 @@ def build_index(_: argparse.Namespace) -> int:
             print(f"Ошибка entity-pass {path}: {exc}", file=sys.stderr)
         conn.commit()
     finalize_schema_evidence(conn)
+    npc_text.finalize(sys.modules[__name__],conn)
     conn.commit()
     print("Индекс построен:", INDEX)
     for source, count in counts.items():
@@ -1864,6 +1890,8 @@ def base_entity(conn: sqlite3.Connection, source: str, kind: str, entity: str) -
 
 
 def norm_identity(kind: str, fields: dict) -> tuple:
+    if kind == 'npc_text':
+        return (kind,)
     if kind in ('creature', 'quest'):
         return (kind, fields.get('name' if kind == 'creature' else 'title'))
     if kind == "gossip_menu_option":
@@ -1895,6 +1923,8 @@ def quest_identity_text(value, *, field: str | None = None):
 
 
 def identities_match(kind: str, source: dict, target: dict) -> bool:
+    if kind == 'npc_text':
+        return any(npc_text.field_match(sys.modules[__name__],source,target,field) for field in npc_text.TEXT_FIELDS)
     if kind in ('creature', 'quest'):
         required = ('name', 'type', 'unit_class') if kind == 'creature' else ('title', 'objectives', 'details', 'minlevel')
         structural = CREATURE_STRUCT if kind == 'creature' else ('minlevel', 'method', 'zoneorsort', 'type')
@@ -1928,6 +1958,9 @@ def identity_ok(conn: sqlite3.Connection, kind: str, entity: str, sources: tuple
     target = base_entity(conn, "target", kind, entity)
     if not target:
         return False, "target entity missing"
+    if kind == 'npc_text':
+        donors = sources if sources is not None else reference_sources(conn)
+        return (True, 'field-level npc_text identity') if any(base_entity(conn,s,kind,entity) is not None for s in donors) else (False,'no upstream base identity')
     tid = norm_identity(kind, target)
     seen = False
     for src in (sources if sources is not None else reference_sources(conn)):
@@ -1988,18 +2021,51 @@ def _primary_compare_value(conn: sqlite3.Connection, kind: str, entity: str, loc
         return ("MATCH" if len(upstream) >= 2 else "SOURCE_ONLY"), details
     upstream = {}
     provenance = {}
+    npc_rejections = []
+    npc_proofs = {}
     for source in reference_sources(conn):
         item = get_record(conn, source, kind, entity, locale)
         if item and item[0].get(field) not in (None, ""):
+            if kind == 'npc_text':
+                if not npc_text.field_match(sys.modules[__name__],base_entity(conn,source,kind,entity),base_entity(conn,'target',kind,entity),field):
+                    return 'UNSUPPORTED', {'reason':source+' npc_text field identity mismatch','field':field,
+                                           'source_option':npc_text.option_evidence(base_entity(conn,source,kind,entity),field),
+                                           'target_option':npc_text.option_evidence(base_entity(conn,'target',kind,entity),field),
+                                           'source':source,'source_english':english_field_evidence(conn,source,kind,entity,field),
+                                           'target_english':english_field_evidence(conn,'target',kind,entity,field),
+                                           'provenance':{source:item[0].get('_provenance',{}).get(field,{'file':item[1],'table':item[2]})}}
+                if field in item[0].get('_adapter_conflicts',{}):
+                    return 'CONFLICT', {'reason':'direct/broadcast translation conflict','source':source,
+                                        'provenance':{source:item[0].get('_provenance',{}).get(field,{'file':item[1],'table':item[2]})},
+                                        'adapter_conflict':item[0]['_adapter_conflicts'][field]}
+                npc_proofs[source] = {'source':english_field_evidence(conn,source,kind,entity,field),
+                                      'target':english_field_evidence(conn,'target',kind,entity,field),
+                                      'source_option':npc_text.option_evidence(base_entity(conn,source,kind,entity),field),
+                                      'target_option':npc_text.option_evidence(base_entity(conn,'target',kind,entity),field)}
+                english = npc_proofs[source]['target']
+                if locale == 'ruRU' and english and translation_comparison_text(item[0][field],locale) == translation_comparison_text(english['value'],locale):
+                    npc_rejections.append({'source':source,'value':item[0][field],'reason':'CONFIRMED_ENGLISH_FALLBACK',
+                                          'provenance':item[0].get('_provenance',{}).get(field,{'file':item[1],'table':item[2]}),'target_english':english})
             if kind == 'quest' and field.startswith('objective:') and not objective_identity_ok(conn, field.split(':')[1], source):
                 return 'UNSUPPORTED', {'reason': f'{source} quest objective identity mismatch', 'objective_id': int(field.split(':')[1])}
             upstream[source] = str(item[0][field])
             revision = None if indexed_provenance else source_revision(source)
             provenance[source] = {"repository_revision": revision, "revision_verified": revision is not None,
                                   **item[0].get('_provenance', {}).get(field, {"file": item[1], "table": item[2]})}
+    # English-only NPC candidates are not useful ruRU data. Mixed evidence
+    # retains the existing PRIMARY quorum/conflict policy.
+    if npc_rejections and set(upstream) == {r['source'] for r in npc_rejections}:
+        upstream = {}
+        provenance = {}
+    else:
+        npc_rejections = []
     target_record = target_locale_record(conn, kind, entity, locale)
     target_val = target_record.get(field) if target_record else None
     details: dict[str, object] = {"upstream": upstream, "provenance": provenance, "target": target_val}
+    if npc_proofs:
+        details['npc_text_identity_proof'] = npc_proofs
+    if npc_rejections:
+        details["rejected_english_fallbacks"] = npc_rejections
     invalid = [value for value in (invalid_locale_values(conn, kind, entity, locale) if invalid_evidence is None else invalid_evidence) if value['field'] == field]
     if invalid:
         details['invalid_values'] = invalid
@@ -2043,7 +2109,7 @@ def english_field_evidence(conn: sqlite3.Connection, source: str, kind: str, ent
     if part == 'quest_objective' and fields.get('questid') != json.loads(entity):
         return None
     return {'value': value, 'file': row[1], 'table': ALL_SPECS[part]['target_entity'],
-            'field': column, 'entity_key': json.loads(key)}
+            'field': column, 'entity_key': json.loads(key), **fields.get('_english_provenance',{}).get(column,{})}
 
 
 def confirmed_english_fallback_comparisons(conn: sqlite3.Connection, kind: str, entity: str, locale: str, *,
@@ -2458,7 +2524,7 @@ def _primary_bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, loc
     alias = verified_alias(conn, kind, entity, locale) if kind in ("gameobject", "gossip_menu_option") and valid_key and candidates else None
     # A translation donor must have its own verified identity; another upstream's
     # matching base row cannot establish identity for a SOURCE_ONLY donor.
-    if identity:
+    if identity and kind != 'npc_text':
         for source in candidates:
             if base_entity(conn, source, kind, entity) is None:
                 identity, identity_reason = False, f"{source} no upstream base identity"
@@ -2489,7 +2555,7 @@ def _primary_bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, loc
                                                              comparisons=comparisons) or comparisons
     statuses = {value["status"] for value in comparisons.values()}
     sql = []
-    if (kind == "quest" and identity and valid_key
+    if (kind in ("quest", "npc_text") and identity and valid_key
             and statuses & {"MATCH", "SOURCE_ONLY"}
             and statuses & {"CONFLICT", "UNSUPPORTED"}):
         status, reason = "PARTIAL", "Экспорт только согласованных полей; заблокированные поля не изменяются"
@@ -2531,7 +2597,7 @@ def _primary_bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, loc
              "status": status, "reason": reason, "candidates_found": bool(candidates),
              "exported": bool(sql), "identity_failed": bool(candidates and not identity and not proof and not alias),
              "values": values, "provenance": provenance, "fields": comparisons}
-    if kind == 'quest':
+    if kind in ('quest','npc_text'):
         for field, detail in comparisons.items():
             detail['exported'] = bool(sql) and detail['status'] in ('MATCH', 'SOURCE_ONLY')
         entry['exported_fields'] = sorted(field for field, detail in comparisons.items() if detail['exported'])
@@ -2625,6 +2691,8 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
             first_entry = True
             for kind in kinds:
                 counts = {name: 0 for name in ("total_target_entities", "candidates_found", "exported", "MATCH", "SOURCE_ONLY", "SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS", "TARGET_IDENTICAL", "CONFLICT", "MISSING", "UNSUPPORTED", "identity_failed", "unsupported", "skipped", "PARTIAL", "exported_fields", "quest_row_fields", "objective_fields", "conflict_fields")}
+                if kind == 'npc_text':
+                    counts.update(npc_text_fields=0, primary_fields=0, supplemental_fields=0, direct_evidence=0, broadcast_backed_evidence=0, unsupported_fields=0)
                 summary[kind] = counts
                 order = "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),entity" if kind == "gossip_menu_option" else "json_extract(entity,'$'),entity"
                 rows = conn.execute("SELECT entity FROM entities WHERE source='target' AND kind=? ORDER BY " + order, (kind,))
@@ -2636,10 +2704,19 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                         counts["total_target_entities"] += 1
                         counts["candidates_found"] += int(entry["candidates_found"])
                         counts[entry["status"]] += 1
-                        if kind == 'quest':
+                        if kind in ('quest','npc_text'):
                             selected = entry['exported_fields']
                             counts['exported_fields'] += len(selected)
-                            counts['quest_row_fields'] += sum(not field.startswith('objective:') for field in selected)
+                            if kind == 'quest':
+                                counts['quest_row_fields'] += sum(not field.startswith('objective:') for field in selected)
+                            else:
+                                counts['npc_text_fields'] += len(selected)
+                                for field in selected:
+                                    detail = entry['fields'][field]
+                                    counts['supplemental_fields' if detail.get('decision_origin') == 'supplemental' else 'primary_fields'] += 1
+                                    for proof in detail.get('provenance',{}).values():
+                                        counts['broadcast_backed_evidence' if proof.get('adapter') == 'broadcast-backed' else 'direct_evidence'] += 1
+                                counts['unsupported_fields'] += sum(d['status'] == 'UNSUPPORTED' for d in entry['fields'].values())
                             counts['objective_fields'] += sum(field.startswith('objective:') for field in selected)
                             counts['conflict_fields'] += sum(detail['status'] == 'CONFLICT' for detail in entry['fields'].values())
                         counts["identity_failed"] += int(entry["identity_failed"])
@@ -2649,7 +2726,7 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                             sql_file.write("\n".join(statements) + "\n")
                         else:
                             counts["skipped"] += 1
-                        if kind == 'quest' or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
+                        if kind in ('quest','npc_text') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
                             if not first_entry:
                                 report.write(",\n")
                             first_entry = False

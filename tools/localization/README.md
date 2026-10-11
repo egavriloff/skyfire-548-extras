@@ -1,7 +1,7 @@
 # Offline localization toolkit
 
 Standard-library Python tooling for ProjectSkyFire 5.4.8 World DB. Supports item,
-gameobject, gossip_menu_option, creature and quest. No live DB connection is made.
+gameobject, gossip_menu_option, creature, quest and npc_text. No live DB connection is made.
 Repository locations are defined in [repository guidance](../../.agents/repository.md).
 
 ## Developer workflow
@@ -69,7 +69,7 @@ by supplemental evidence, and differing evidence cannot veto a PRIMARY export.
 Nonempty target fields are never overwritten. Missing primary base evidence does
 not establish proof; available contradictory primary base evidence blocks additions.
 
-Quest additions are independent per field; blocked fields remain untouched.
+Quest and npc_text additions are independent per field; blocked fields remain untouched.
 Objective descriptions require strict objective identity and admissible parent
 quest identity. Non-quest supplemental bundles retain atomic conflict handling;
 a blocked supplemental bundle never removes the existing PRIMARY SQL.
@@ -94,6 +94,7 @@ available values agree; SOURCE_ONLY means one donor supplies a value. Other stat
 TARGET_IDENTICAL, CONFLICT, MISSING, UNSUPPORTED. Quest export is field-level:
 quest identity must pass globally, then only MATCH/SOURCE_ONLY fields are written.
 Conflicting, unsupported and nonempty target fields are omitted, not cleared.
+The same field-level semantics apply to npc_text; option/variant proof is independent.
 PARTIAL marks exported quests with blocked fields. Reports retain every quest's
 field status, original values, provenance, exported_fields and blocked_fields;
 summary field counters distinguish quest-row fields from objective descriptions.
@@ -120,6 +121,56 @@ Creature/quest base evidence covers active indexed inputs. Existing sparse
 candidate selection remains for item/gameobject/gossip. Counters describe indexed
 targets, not live DB state. Source revisions require independent Git metadata;
 bulk output does not depend on current Git HEAD.
+
+## NPC text localization and target core patch
+
+npc_text uses npc_text for base evidence and locales_npc_text for target locale
+values. The verified target locale schema has 12 options, two text variants each,
+and locale slots 1..11; target base packets currently expose eight options.
+Fields without target English proof are unsupported even if a locale column exists.
+
+Adapters accept wide Text0_0_locN through Text11_1_locN, row npc_text_locale,
+and source-local npc_text.BroadcastTextIDN -> broadcast_text -> broadcast_text_locale
+chains. Broadcast data is internal adapter evidence, not a new CLI entity type.
+English text, option index, language and probability must agree for each field;
+an ID alone never proves compatibility. Broadcast IDs are never copied to target.
+Direct/broadcast disagreements inside a reference are retained as conflicts.
+Field provenance records direct versus broadcast-backed mode and the full local chain.
+English-only candidates confirmed against target base are never exported as ruRU.
+Mixed PRIMARY evidence keeps the existing fallback quorum/conflict requirements;
+a single Russian donor does not resolve an English/Russian conflict. SUPPLEMENTAL
+uses the existing exact confirmed-English exclusion for missing fields. No language
+detection identifies fallback. Existing policies for other entity types are unchanged.
+
+```sh
+python tools/localization/localize.py inspect npc_text 4938 --locale ruRU
+python tools/localization/localize.py compare npc_text 4938 --locale ruRU
+python tools/localization/localize.py export npc_text 4938 --locale ruRU
+```
+
+The target core requires [npc-text-locale.patch](patches/npc-text-locale.patch).
+It generates the loader SELECT and offsets from the same 12-option/2-variant
+layout (265 columns including ID), fixes storage capacity, and applies session
+locale through one ObjectMgr helper to direct query, legacy broadcast reply and
+quest greetings. Empty locale fields preserve their respective base variant.
+The direct WNPC reply retains its existing single-body layout; this patch does
+not redesign packet/cache architecture or claim additional client option support.
+
+For an unpatched target checkout, from this repository root:
+
+```sh
+git apply --check --directory=externals/core/repo tools/localization/patches/npc-text-locale.patch
+git apply --directory=externals/core/repo tools/localization/patches/npc-text-locale.patch
+build.cmd worldserver
+```
+
+Use ./build.sh worldserver on macOS/Linux. Rebuild and restart/reload the core
+before client validation; generated SQL alone does not repair locale delivery.
+No tooling command applies this patch or SQL automatically. CXX can point to a
+C++ compiler when running the test suite: with a patched target checkout, the
+optional executable harness compiles actual loader/fallback snippets, verifies
+ruRU Text0_0 at field 169, all 265 query columns, independent variants and unchanged
+probability/language/emotes. This harness is not a full worldserver build.
 
 ## Reference locale schemas
 
