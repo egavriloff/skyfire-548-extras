@@ -2,6 +2,9 @@
 /.devcontainer/
 /.tmp/*
 
+__pycache__/
+*.pyc
+
 /externals/core/*
 !/externals/core/.gitkeep
 !/externals/core/repo
