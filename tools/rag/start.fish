@@ -9,6 +9,11 @@ if not test -x "$python"
     exit 1
 end
 
+if not set -q RAG_PROVIDER
+    set -gx RAG_PROVIDER lmstudio
+end
+
 cd "$root"
+
 command "$python" "$script_dir/server.py" $argv
 exit $status

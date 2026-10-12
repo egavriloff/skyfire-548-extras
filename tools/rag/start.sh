@@ -10,5 +10,8 @@ if [[ ! -x "$PYTHON" ]]; then
     exit 1
 fi
 
+export RAG_PROVIDER="${RAG_PROVIDER:-lmstudio}"
+
 cd "$ROOT"
+
 exec "$PYTHON" "$SCRIPT_DIR/server.py" "$@"

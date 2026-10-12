@@ -37,7 +37,7 @@ elif PROVIDER == "lmstudio":
         "RAG_EMBEDDING_URL",
         "http://127.0.0.1:1234/v1",
     )
-    INDEX_NAME = "skyfire-nomic"
+    INDEX_NAME = "skyfire-code"
     API_KEY = "lm-studio"
 
 else:
