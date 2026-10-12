@@ -5,8 +5,8 @@
       "files": {
         "creature.sql": "f757afe69d4d91e3a16aadc4335e19adb1eb6c53f20b90e3cea720b966b69456"
       },
-      "review_bundle_sha256": "4fd362d55adae167ed5691bc688e6db2e3f0adf7034223f0c6cdd0843ece1635",
-      "review_report_sha256": "26e9f8cf0c5804808758e638d27e92e078c05d6cb3acd9b6dbd44d3477a8eea8",
+      "review_bundle_sha256": "0d9cb30ed48a36e390be238de23b0f2b7b777811954d47b4245c0111bb3f4dc3",
+      "review_report_sha256": "f45b9423a7686009d853ec210294c1df261b24159a2a7bfd98b00fc1cc164827",
       "skipped_acknowledged": true,
       "summary": {
         "CONFLICT": 3872,
@@ -30,13 +30,50 @@
         "unsupported": 6147
       }
     },
+    "creature_text": {
+      "exception_flags_preserved": true,
+      "files": {
+        "creature_text.sql": "38e4f5ab5c13f22fe378ed83559f0a1d958152f85a13c60f411b9fdd4a085f15"
+      },
+      "review_bundle_sha256": "0d9cb30ed48a36e390be238de23b0f2b7b777811954d47b4245c0111bb3f4dc3",
+      "review_report_sha256": "f45b9423a7686009d853ec210294c1df261b24159a2a7bfd98b00fc1cc164827",
+      "skipped_acknowledged": true,
+      "summary": {
+        "CONFLICT": 192,
+        "MATCH": 2131,
+        "MISSING": 312,
+        "PARTIAL": 0,
+        "SAFE_SINGLE_IDENTITY": 0,
+        "SOURCE_ONLY": 201,
+        "TARGET_IDENTICAL": 0,
+        "UNSUPPORTED": 4570,
+        "VERIFIED_ALIAS": 0,
+        "broadcast_backed_evidence": 2253,
+        "candidates_found": 7100,
+        "conflict_fields": 192,
+        "creature_text_fields": 2332,
+        "direct_evidence": 4308,
+        "exported": 2332,
+        "exported_fields": 2332,
+        "identity_failed": 4570,
+        "npc_text_fields": 0,
+        "objective_fields": 0,
+        "primary_fields": 2331,
+        "quest_row_fields": 0,
+        "skipped": 5074,
+        "supplemental_fields": 1,
+        "total_target_entities": 7406,
+        "unsupported": 4570,
+        "unsupported_fields": 4570
+      }
+    },
     "gameobject": {
       "exception_flags_preserved": true,
       "files": {
         "gameobject.sql": "82217375afed81f9f67830a736bd21d975dd09a10f3e6b54c658bea1a92e4b9f"
       },
-      "review_bundle_sha256": "4fd362d55adae167ed5691bc688e6db2e3f0adf7034223f0c6cdd0843ece1635",
-      "review_report_sha256": "26e9f8cf0c5804808758e638d27e92e078c05d6cb3acd9b6dbd44d3477a8eea8",
+      "review_bundle_sha256": "0d9cb30ed48a36e390be238de23b0f2b7b777811954d47b4245c0111bb3f4dc3",
+      "review_report_sha256": "f45b9423a7686009d853ec210294c1df261b24159a2a7bfd98b00fc1cc164827",
       "skipped_acknowledged": true,
       "summary": {
         "CONFLICT": 1258,
@@ -65,8 +102,8 @@
       "files": {
         "gossip_menu_option.sql": "dc39c822d56a0f8e114e030b56f2ac21714a56c96b5b6dfe856b705f6069f346"
       },
-      "review_bundle_sha256": "4fd362d55adae167ed5691bc688e6db2e3f0adf7034223f0c6cdd0843ece1635",
-      "review_report_sha256": "26e9f8cf0c5804808758e638d27e92e078c05d6cb3acd9b6dbd44d3477a8eea8",
+      "review_bundle_sha256": "0d9cb30ed48a36e390be238de23b0f2b7b777811954d47b4245c0111bb3f4dc3",
+      "review_report_sha256": "f45b9423a7686009d853ec210294c1df261b24159a2a7bfd98b00fc1cc164827",
       "skipped_acknowledged": true,
       "summary": {
         "CONFLICT": 0,
@@ -95,8 +132,8 @@
       "files": {
         "item.sql": "87494d3802517189ca618bfee6d225fdad8a9725ba05ee133aa669981e638b46"
       },
-      "review_bundle_sha256": "4fd362d55adae167ed5691bc688e6db2e3f0adf7034223f0c6cdd0843ece1635",
-      "review_report_sha256": "26e9f8cf0c5804808758e638d27e92e078c05d6cb3acd9b6dbd44d3477a8eea8",
+      "review_bundle_sha256": "0d9cb30ed48a36e390be238de23b0f2b7b777811954d47b4245c0111bb3f4dc3",
+      "review_report_sha256": "f45b9423a7686009d853ec210294c1df261b24159a2a7bfd98b00fc1cc164827",
       "skipped_acknowledged": true,
       "summary": {
         "CONFLICT": 2038,
@@ -125,8 +162,8 @@
       "files": {
         "npc_text.sql": "7b3edc013aa35bced2e988e233e4012b353ddcdf9acff200efa2cadbc52a88d6"
       },
-      "review_bundle_sha256": "4fd362d55adae167ed5691bc688e6db2e3f0adf7034223f0c6cdd0843ece1635",
-      "review_report_sha256": "26e9f8cf0c5804808758e638d27e92e078c05d6cb3acd9b6dbd44d3477a8eea8",
+      "review_bundle_sha256": "0d9cb30ed48a36e390be238de23b0f2b7b777811954d47b4245c0111bb3f4dc3",
+      "review_report_sha256": "f45b9423a7686009d853ec210294c1df261b24159a2a7bfd98b00fc1cc164827",
       "skipped_acknowledged": true,
       "summary": {
         "CONFLICT": 728,
@@ -141,6 +178,7 @@
         "broadcast_backed_evidence": 8287,
         "candidates_found": 8246,
         "conflict_fields": 1494,
+        "creature_text_fields": 0,
         "direct_evidence": 15483,
         "exported": 5887,
         "exported_fields": 8374,
@@ -162,8 +200,8 @@
         "quest.sql": "8b4f44a16d9f85bf8b61c8c674e4dffb7ce3eb4716bb5859370ccb757082e997",
         "quest_objective.sql": "a7aa99380824e068045c02c40ac19dc0fb2fb0ca4d14a61693ffe81bd9bcc50b"
       },
-      "review_bundle_sha256": "4fd362d55adae167ed5691bc688e6db2e3f0adf7034223f0c6cdd0843ece1635",
-      "review_report_sha256": "26e9f8cf0c5804808758e638d27e92e078c05d6cb3acd9b6dbd44d3477a8eea8",
+      "review_bundle_sha256": "0d9cb30ed48a36e390be238de23b0f2b7b777811954d47b4245c0111bb3f4dc3",
+      "review_report_sha256": "f45b9423a7686009d853ec210294c1df261b24159a2a7bfd98b00fc1cc164827",
       "skipped_acknowledged": true,
       "summary": {
         "CONFLICT": 74,
