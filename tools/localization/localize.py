@@ -11,6 +11,8 @@ import sqlite3
 import subprocess
 import sys
 import zipfile
+from dataclasses import dataclass
+from contextvars import ContextVar
 from contextlib import closing
 from collections import deque
 from pathlib import Path
@@ -21,6 +23,8 @@ sys.dont_write_bytecode = True
 import publishing
 import evidence_roles
 import npc_text
+import creature_text
+import source_setup
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
 LOCALES = {
@@ -28,6 +32,7 @@ LOCALES = {
     "esES": 6, "esMX": 7, "ruRU": 8, "itIT": 9, "ptBR": 10, "ptPT": 11,
 }
 SKIP_DIRS = {"old", "pending", "archive", "archives", "deprecated", "legacy"}
+SCAN_CONTEXT = ContextVar("localization_scan_context", default=None)
 
 SPECS = {
     "item": {
@@ -77,6 +82,11 @@ SPECS['npc_text'] = {'source_table':'npc_text_locale', 'target_table':'locales_n
     'source_target_fields':{f:f for f in npc_text.TEXT_FIELDS},
     'wide_fields':{f:f+'_loc{n}' for f in npc_text.TEXT_FIELDS}}
 
+SPECS['creature_text'] = {'source_table':'creature_text_locale', 'target_table':'locales_creature_text',
+    'target_entity':'creature_text', 'entity_fields':creature_text.KEYS, 'source_id':creature_text.KEYS,
+    'target_id':creature_text.KEYS, 'source_locale':'locale', 'text_fields':{'text':'text'},
+    'source_target_fields':{'text':'text'}, 'wide_fields':{'text':'text_loc{n}'}}
+
 # Internal quest parts; these are not separate CLI entity types.
 QUEST_PARTS = {
     'quest_offer_reward': ('quest_offer_reward_locale', 'offerrewardtext', 'rewardtext'),
@@ -108,6 +118,8 @@ def locale_table_kind(table: str) -> str | None:
 
 def canonical_row(kind: str, row: dict) -> dict:
     row = dict(row)
+    if kind == 'creature_text':
+        row = creature_text.canonical(row)
     if kind == 'npc_text':
         row = npc_text.canonical(row)
     if kind == npc_text.BROADCAST_KIND:
@@ -158,6 +170,9 @@ class Tokens:
         self.pos = 0
         self.eof = False
         self.pushback: deque[tuple[str, str]] = deque()
+        self.context_head = []
+        self.context_tail = deque(maxlen=12)
+        self.capture_context = False
 
     def _char(self) -> str:
         if self.pos >= len(self.buf):
@@ -180,6 +195,18 @@ class Tokens:
         return self.buf[self.pos]
 
     def get(self) -> tuple[str, str]:
+        token = self._next_token()
+        if self.capture_context:
+            value = repr(token[1][:96]) if token[0] == 'string' else token[1][:96]
+            if len(self.context_head) < 6:
+                self.context_head.append(value)
+            self.context_tail.append(value)
+        return token
+
+    def statement_context(self) -> str:
+        return ' '.join(self.context_head) + ' ... ' + ' '.join(self.context_tail)
+
+    def _next_token(self) -> tuple[str, str]:
         if self.pushback:
             return self.pushback.popleft()
         while True:
@@ -411,14 +438,16 @@ def source_definitions() -> dict[str, dict]:
                 continue
             config_file = directory / 'source.json'
             config = json.loads(config_file.read_text(encoding='utf-8')) if config_file.exists() else {}
-            if not isinstance(config, dict) or set(config) - {'alias_role', 'evidence_role'} or config.get('alias_role') not in (None, 'origin', 'corroborator'):
+            if not isinstance(config, dict) or set(config) - {'alias_role', 'evidence_role', 'inputs', 'exclude'} or config.get('alias_role') not in (None, 'origin', 'corroborator'):
                 raise RuntimeError(f'Invalid optional evidence role configuration: {config_file}')
             if not isinstance(config.get('evidence_role'), str) or config['evidence_role'] not in evidence_roles.ROLES:
                 raise RuntimeError(f'{source}: source.json requires explicit evidence_role (primary, supplemental, code_schema): {config_file}')
             if config.get('alias_role') and config['evidence_role'] != 'primary':
                 raise RuntimeError(f'{source}: alias_role requires PRIMARY evidence')
+            if 'inputs' in config or 'exclude' in config:
+                source_setup.resolve_config(directory, config, SKIP_DIRS)
             result[source] = {'path': directory, 'role': 'reference', 'alias_role': config.get('alias_role'),
-                              'evidence_role': config['evidence_role'], 'config_fingerprint': evidence_roles.fingerprint(config)}
+                              'evidence_role': config['evidence_role'], 'config_fingerprint': evidence_roles.fingerprint(config), 'config':config}
     roles = [value['alias_role'] for value in result.values() if value['alias_role']]
     if len(roles) != len(set(roles)):
         raise RuntimeError('Duplicate alias evidence roles; require at most one origin and one corroborator')
@@ -459,35 +488,35 @@ def alias_reference_pair(conn: sqlite3.Connection) -> tuple[str, str] | None:
     return roles['origin'], roles['corroborator']
 
 
+def excluded_sql_input(path: Path, member: str | None = None) -> bool:
+    """Reject excluded path segments, including physical aliases and ZIP members."""
+    for candidate, root in ((path.absolute(), ROOT.absolute()), (path.resolve(), ROOT.resolve())):
+        try:
+            parts = candidate.relative_to(root).parts
+        except ValueError:
+            return True  # Inputs must remain within the local external workspace.
+        if any(part.casefold() in SKIP_DIRS for part in parts):
+            return True
+    return bool(member and any(part.casefold() in SKIP_DIRS
+                               for part in member.replace('\\', '/').split('/')[:-1]))
+
+
 def active_files() -> list[tuple[str, Path, str | None]]:
     result = []
-    def walk_error(error: OSError) -> None:
-        raise RuntimeError(f"Не удалось прочитать каталог источников: {error}") from error
-
     for source, definition in source_definitions().items():
         if definition.get('evidence_role') == 'code_schema':
             continue
-        for location in ("repo", "db"):
-            base = definition['path'] / location
-            if not base.exists():
-                continue
-            for directory, dirs, files in os.walk(base, onerror=walk_error, followlinks=False):
-                dirs[:] = sorted(name for name in dirs if name.casefold() not in SKIP_DIRS | {".git"})
-                for name in sorted(files):
-                    path = Path(directory) / name
-                    if path.suffix.casefold() == ".sql":
-                        result.append((source, path, None))
-                    elif path.suffix.casefold() == ".zip":
-                        try:
-                            # Read archive metadata only; SQL members are streamed later.
-                            with zipfile.ZipFile(path) as archive:
-                                for info in archive.infolist():
-                                    member = info.filename.replace("\\", "/")
-                                    if (not info.is_dir() and member.casefold().endswith(".sql")
-                                            and not any(part.casefold() in SKIP_DIRS for part in member.split("/")[:-1])):
-                                        result.append((source, path, info.filename))
-                        except (OSError, zipfile.BadZipFile) as exc:
-                            raise RuntimeError(f"Не удалось прочитать SQL-архив {path}: {exc}") from exc
+        root=definition['path']
+        config=definition.get('config')
+        try:
+            rows=(source_setup.resolve_config(root,config,SKIP_DIRS) if config
+                  else source_setup.discover(root,SKIP_DIRS)['inputs'])
+        except (OSError,zipfile.BadZipFile,ValueError) as exc:
+            raise RuntimeError(f"Source inputs invalid: source={source} path={root}: {exc}") from exc
+        for row in rows:
+            path=root/row['path'];member=row.get('member')
+            if not excluded_sql_input(path,member):
+                result.append((source,path,member))
     # Source base snapshots, then full/release db dumps, then ordered updates.
     def order(entry: tuple[str, Path, str | None]) -> tuple[str, int, str, str]:
         original = entry[1].relative_to(ROOT).as_posix()
@@ -687,7 +716,32 @@ def literal_tuple(t: Tokens) -> list[object]:
     return values
 
 
+@dataclass(frozen=True)
+class UnresolvedVariable:
+    """Known assignment whose expression is never executed or guessed."""
+    variable: str
+    expression: str
+    reason: str
+    assignment: str
+    source: str = ""
+    file: str = ""
+    pass_name: str = ""
+    status: str = "UNRESOLVED"
+
+
+class UnresolvedVariableError(ValueError):
+    """A relevant key/value requires an unavailable variable value."""
+
+
 def sql_value(expr: list[tuple[str, str]], variables: dict[str, object] | None = None) -> object:
+    # Even unsupported compound values must not hide an unresolved dependency.
+    # Quoted strings are literal content, never variable references.
+    if len(expr) != 1:
+        for token_kind, token_value in expr:
+            if token_kind != 'string':
+                for name in re.findall(r'(?<!@)@[A-Za-z_][A-Za-z_0-9]*', token_value):
+                    if variables and isinstance(variables.get(name.casefold()), UnresolvedVariable):
+                        sql_value([('word', name)], variables)
     if len(expr) == 1:
         kind, val = expr[0]
         if kind == "string":
@@ -695,7 +749,13 @@ def sql_value(expr: list[tuple[str, str]], variables: dict[str, object] | None =
         if val.startswith("@"):
             if variables is None or val.casefold() not in variables:
                 raise ValueError(f"неопределённая SQL-переменная: {val}")
-            return variables[val.casefold()]
+            value = variables[val.casefold()]
+            if isinstance(value, UnresolvedVariable):
+                raise UnresolvedVariableError(
+                    f"unresolved SQL variable={val} assignment_source={value.source} "
+                    f"assignment_file={value.file} assignment_pass={value.pass_name} "
+                    f"assignment={value.assignment} expression={value.expression}: {value.reason}")
+            return value
         up = val.upper()
         if up == "NULL":
             return None
@@ -726,6 +786,8 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
     if table == spec["source_table"] or table in ('quest_objectives_locale', 'creature_template_wdb_locale') or kind == 'quest_objective':
         if kind == "gossip_menu_option":
             entity = (row.get("menuid"), row.get("optionid", row.get("optionindex", row.get("id"))))
+        elif kind == "creature_text":
+            entity = creature_text.key(row)
         else:
             entity = row.get("id" if table == "creature_template_wdb_locale" else spec["source_id"])
         locale = row.get(spec["source_locale"])
@@ -743,7 +805,7 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
     # SkyFire wide table: only non-enUS localized slots are represented here.
     if kind == "gossip_menu_option":
         return None
-    entity = row.get(spec["target_id"])
+    entity = creature_text.key(row) if kind == "creature_text" else row.get(spec["target_id"])
     if entity is None:
         return None
     for locale, index in LOCALES.items():
@@ -763,6 +825,8 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
 
 def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
     row = canonical_row(kind, row)
+    if kind == 'creature_text':
+        return {k:row[k] for k in ('text', *creature_text.STRUCT, 'textrange','broadcasttextid','soundtype','mintimer','maxtimer','spellid') if k in row}
     if kind == 'npc_text':
         return {k:v for k,v in row.items() if k != 'id'}
     if kind == npc_text.BROADCAST_KIND:
@@ -792,6 +856,8 @@ def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
 def valid_entity_key(kind, key):
     if kind == 'npc_text' and key == 0:
         return False  # LoadGossipText reserves zero.
+    if kind == 'creature_text':
+        return isinstance(key,(tuple,list)) and len(key)==3 and all(type(v) is int and v>=0 for v in key) and key[0]>0 and key[1]<=255 and key[2]<=255
     parts = key if kind == 'gossip_menu_option' and isinstance(key, (tuple, list)) else (key,)
     return (kind != 'gossip_menu_option' or len(parts) == 2) and all(type(v) is int and v >= 0 for v in parts)
 
@@ -810,6 +876,8 @@ def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[s
     spec = ALL_SPECS[kind]
     if kind == "gossip_menu_option":
         ident = (row.get("menuid", row.get("menu_id")), row.get("optionid", row.get("optionindex", row.get("id"))))
+    elif kind == "creature_text":
+        ident = creature_text.key(row)
     else:
         ident = row.get(spec["entity_fields"][0])
     if not valid_entity_key(kind, ident):
@@ -819,7 +887,7 @@ def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[s
     if not fields:
         schema_warning(conn, source, file, table_name or spec['target_entity'], kind, 'missing base identity fields; row rejected', ident, row)
         return
-    required = {'creature': {'name', 'type', 'unit_class'}, 'quest': {'title', 'objectives', 'details', 'minlevel'}}.get(kind, set())
+    required = {'creature': {'name', 'type', 'unit_class'}, 'quest': {'title', 'objectives', 'details', 'minlevel'}, 'creature_text': {'text', *creature_text.STRUCT}}.get(kind, set())
     missing = sorted(required - set(fields))
     if missing:
         fields['_evidence_incomplete'] = 1
@@ -883,7 +951,7 @@ def invalid_locale_values(conn, kind, entity, locale, *, all_sources=False):
 def reference_locale_plan(table: str, cols: list[str]) -> tuple[str, tuple[str, ...], dict[str, tuple[str, str]]] :
     """Validate a supported schema and explicit locale slots before importing rows."""
     kind = REFERENCE_LOCALE_TABLES[table]
-    keys = ('menu_id', 'id') if kind == 'gossip_menu_option' else (ALL_SPECS[kind]['target_id'],)
+    keys = ('menu_id', 'id') if kind == 'gossip_menu_option' else tuple(next((col for col in cols if creature_text.ALIASES.get(col,col)==key),key) for key in creature_text.KEYS) if kind == 'creature_text' else (ALL_SPECS[kind]['target_id'],)
     if not cols or len(cols) != len(set(cols)) or not set(keys).issubset(cols):
         raise ValueError('missing/duplicate entity key columns')
     if kind == 'quest_objective':
@@ -894,7 +962,7 @@ def reference_locale_plan(table: str, cols: list[str]) -> tuple[str, tuple[str, 
                 if kind == 'gossip_menu_option' else ALL_SPECS[kind]['wide_fields'])
     known = {pattern.format(n=n): (field, locale) for field, pattern in patterns.items()
              for locale, n in LOCALES.items() if n > 0}
-    female = {prefix + '_female_loc' + str(n) for prefix in ('option_text', 'box_text') for n in range(1, 12)} if kind == 'gossip_menu_option' else set()
+    female = {prefix + '_female_loc' + str(n) for prefix in ('option_text', 'box_text') for n in range(1, 12)} if kind == 'gossip_menu_option' else {f'text_female_loc{n}' for n in range(1,12)} if kind == 'creature_text' else set()
     unknown = set(cols) - set(keys) - set(known) - female - {"verifiedbuild"}
     mapped = {col: known[col] for col in cols if col in known}
     if unknown or not mapped:
@@ -907,7 +975,9 @@ def persist_reference_locale(conn, source, table, plan, row, file, rank):
     parts = [row.get(key) for key in keys]
     if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in parts):
         raise ValueError('invalid entity key')
-    entity = json.dumps(parts if kind == 'gossip_menu_option' else parts[0])
+    entity = json.dumps(parts if kind in ('gossip_menu_option','creature_text') else parts[0])
+    if kind == "creature_text" and not valid_entity_key(kind,parts):
+        raise ValueError('incomplete or invalid composite key; row rejected')
     if kind == 'quest_objective':
         value = row.get('locale')
         locale = next((code for code, n in LOCALES.items() if type(value) is int and n == value), value)
@@ -1023,7 +1093,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     while True:
         x = t.get()
         if x[0] == "(":
-            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'broadcast_text', *QUEST_PARTS):
+            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'creature_text', 'broadcast_text', *QUEST_PARTS):
                 first_index = next((cols.index(c) for c in ("entry", "menuid", "menu_id", "id") if c in cols), -1)
                 if table in ('gossip_menu_option', 'gossip_menu_option_box', 'gossip_menu_option_action') and (len(cols) < 2 or cols[0] not in ('menuid', 'menu_id') or cols[1] not in ('optionid', 'optionindex', 'id')):
                     first_index = -1  # Sparse composite reads require proven column order.
@@ -1032,6 +1102,8 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                     prefix = t.get()
                     try:
                         key_value = int(sql_value([prefix], t.variables))
+                    except UnresolvedVariableError:
+                        raise
                     except (ValueError, TypeError):
                         key_value = None
                     if table in ("gossip_menu_option", "gossip_menu_option_box", "gossip_menu_option_action"):
@@ -1042,6 +1114,8 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         try:
                             second_value = int(sql_value([second], t.variables))
                             candidate_key = json.dumps((key_value, second_value))
+                        except UnresolvedVariableError:
+                            raise
                         except (ValueError, TypeError):
                             candidate_key = ""
                         if key_value is None or second_value is None:
@@ -1082,6 +1156,8 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
             if len(cols) == len(vals):
                 row = {c: v for c, v in zip(cols, vals)}
                 spec_kind = locale_table_kind(table)
+                if spec_kind == 'creature_text' and not valid_entity_key(spec_kind,creature_text.key(row)):
+                    schema_warning(conn,source,file,table,spec_kind,'incomplete or invalid composite key; row rejected',creature_text.key(row),row)
                 if spec_kind == 'gossip_menu_option':
                     key = (row.get('menuid', row.get('menu_id')), row.get('optionid', row.get('optionindex', row.get('id'))))
                     if not valid_entity_key(spec_kind, key):
@@ -1095,8 +1171,8 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         schema_warning(conn, source, file, table, reference_plan[0], str(exc), parts if len(parts) > 1 else parts[0], row, emit_warning=False)
                 elif spec_kind:
                     if table == ALL_SPECS[spec_kind]["target_table"] and ALL_SPECS[spec_kind]['wide_fields']:
-                        entity = row.get(ALL_SPECS[spec_kind]["target_id"])
-                        if entity is not None:
+                        entity = creature_text.key(row) if spec_kind == "creature_text" else row.get(ALL_SPECS[spec_kind]["target_id"])
+                        if valid_entity_key(spec_kind,entity) if spec_kind == "creature_text" else entity is not None:
                             for locale, n in LOCALES.items():
                                 if n == 0:
                                     continue
@@ -1166,6 +1242,8 @@ def rank_for(file: str) -> int:
 
 def scan_file(conn: sqlite3.Connection, source: str, path: Path, member: str | None, schemas: dict[tuple[str, str], list[str]], phase: str,
               candidates: set[str]) -> None:
+    if excluded_sql_input(path, member):
+        raise ValueError(f"Excluded SQL input rejected: source={source} file={path} member={member} pass={phase}")
     file = path.relative_to(ROOT).as_posix() + (("!" + member) if member else "")
     rank = rank_for(file)
     size = path.stat().st_size
@@ -1174,24 +1252,35 @@ def scan_file(conn: sqlite3.Connection, source: str, path: Path, member: str | N
         print(f"[{source}] потоковая обработка {file} ({size:,} bytes)", flush=True)
     with open_sql(path, member) as stream:
         t = Tokens(stream)
-        while True:
-            token = t.get()
-            if token[0] == "eof":
-                break
-            word = token[1].upper()
-            if word == "CREATE":
-                parse_create(t, source, file, schemas, conn)
-            elif word in ("INSERT", "REPLACE"):
-                parse_insert(t, source, file, schemas, conn, rank, phase, candidates)
-            elif word == "DELETE":
-                parse_delete(t, source, file, conn, phase)
-            elif word == "UPDATE":
-                parse_update(t, source, file, conn, phase)
-            elif word == "SET":
-                parse_set(t)
-            # Index commits in manageable batches.
-            if conn.total_changes and conn.total_changes % 50000 < 500:
-                conn.commit()
+        t.assignment_context = (conn, source, file, phase)
+        context_token = SCAN_CONTEXT.set((phase, t))
+        try:
+            while True:
+                token = t.get()
+                if token[0] == "eof":
+                    break
+                t.capture_context = True
+                t.context_head = [token[1][:96]]
+                t.context_tail.clear()
+                word = token[1].upper()
+                if word == "CREATE":
+                    parse_create(t, source, file, schemas, conn)
+                elif word in ("INSERT", "REPLACE"):
+                    parse_insert(t, source, file, schemas, conn, rank, phase, candidates)
+                elif word == "DELETE":
+                    parse_delete(t, source, file, conn, phase)
+                elif word == "UPDATE":
+                    parse_update(t, source, file, conn, phase)
+                elif word == "SET":
+                    parse_set(t)
+                # Index commits in manageable batches.
+                if conn.total_changes and conn.total_changes % 50000 < 500:
+                    conn.commit()
+        except ValueError as exc:
+            raise ValueError(f"source={source} file={file} pass={phase} statement={t.statement_context()}: {exc}") from exc
+        finally:
+            t.capture_context = False
+            SCAN_CONTEXT.reset(context_token)
 
 
 def statement_tokens(t: Tokens) -> list[tuple[str, str]]:
@@ -1207,16 +1296,132 @@ def statement_tokens(t: Tokens) -> list[tuple[str, str]]:
             raise ValueError("слишком сложный SQL statement")
 
 
+SQL_INT_MIN = -(1 << 63)
+SQL_INT_MAX = (1 << 63) - 1
+
+
+def checked_sql_integer(value: int) -> int:
+    if type(value) is not int or not SQL_INT_MIN <= value <= SQL_INT_MAX:
+        raise ValueError('SQL integer overflow or non-integer operand (signed 64-bit)')
+    return value
+
+
+def integer_expression(text: str, variables: dict[str, object]) -> int:
+    """Bounded recursive descent; only integer operands, unary signs, +, -, *."""
+    if len(text) > 4096:
+        raise ValueError('SQL integer expression exceeds size limit')
+    pattern = re.compile(r'\s*(@[A-Za-z_][A-Za-z_0-9]*|[0-9]+|[+*()\-])')
+    tokens=[];offset=0
+    while offset < len(text):
+        match=pattern.match(text,offset)
+        if not match:
+            if text[offset:].isspace():break
+            raise ValueError('unsupported SQL integer expression token: '+text[offset:offset+80])
+        tokens.append(match[1]);offset=match.end()
+        if len(tokens)>256:raise ValueError('SQL integer expression exceeds token limit')
+    position=0
+    def take():
+        nonlocal position
+        if position >= len(tokens):raise ValueError('incomplete SQL integer expression')
+        value=tokens[position];position+=1;return value
+    def atom(depth=0):
+        nonlocal position
+        if depth>32:raise ValueError('SQL integer expression nesting limit')
+        value=take()
+        if value in ('+','-'):
+            # Handle the minimum signed integer as a negative literal, not an overflowing positive intermediate.
+            if value=='-' and position<len(tokens) and tokens[position].isdigit():
+                digits=take()
+                if len(digits.lstrip('0'))>19:raise ValueError('SQL integer overflow')
+                return checked_sql_integer(-int(digits))
+            return checked_sql_integer((1 if value=='+' else -1)*atom(depth+1))
+        if value=='(':
+            result=addition(depth+1)
+            if take()!=')':raise ValueError('unbalanced SQL integer expression')
+            return result
+        if value.startswith('@'):
+            return checked_sql_integer(sql_value([('word',value)],variables))
+        if value.isdigit():
+            if len(value.lstrip('0'))>19:raise ValueError('SQL integer overflow')
+            return checked_sql_integer(int(value))
+        raise ValueError('invalid SQL integer operand: '+value)
+    def multiplication(depth):
+        nonlocal position
+        result=atom(depth)
+        while position<len(tokens) and tokens[position]=='*':
+            position+=1;result=checked_sql_integer(result*atom(depth))
+        return result
+    def addition(depth):
+        nonlocal position
+        result=multiplication(depth)
+        while position<len(tokens) and tokens[position] in ('+','-'):
+            operator=take();right=multiplication(depth)
+            result=checked_sql_integer(result+right if operator=='+' else result-right)
+        return result
+    result=addition(0)
+    if position!=len(tokens):raise ValueError('unexpected SQL integer expression suffix: '+tokens[position])
+    return result
+
+
+def assignment_value(expr: list[tuple[str, str]], variables: dict[str, object]) -> object:
+    """Evaluate typed literals/copies or bounded deterministic integer arithmetic."""
+    if len(expr) == 1 and expr[0][0] == 'string':
+        return expr[0][1]
+    if any(token[0] == 'string' for token in expr):
+        raise ValueError('unsupported string expression in SQL variable assignment')
+    combined = ' '.join(token[1] for token in expr)
+    # The lexer splits a decimal point, but separate numeric words are not literals.
+    combined = re.sub(r'^([-+]?\d+)\s+\.\s+(\d+(?:[eE][-+]?\d+)?)$', r'\1.\2', combined)
+    if re.fullmatch(r'@[A-Za-z_][A-Za-z_0-9]*', combined):
+        value=sql_value([('word', combined)], variables)
+        return checked_sql_integer(value) if type(value) is int else value
+    if combined.upper() in ('NULL', 'TRUE', 'FALSE'):
+        return sql_value([('word', combined)], variables)
+    if re.fullmatch(r'[-+]?\d+', combined):
+        return integer_expression(combined,variables)
+    if re.fullmatch(r'[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?', combined):
+        import math
+        value = float(combined)
+        if math.isfinite(value):
+            return value
+    return integer_expression(combined,variables)
+
+
 def parse_set(t: Tokens) -> None:
     tokens = statement_tokens(t)
-    # Only literal user variables. Session/system SETs are irrelevant here.
-    for part in split_tokens(tokens, ","):
-        if len(part) == 3 and part[0][1].startswith("@") and not part[0][1].startswith("@@") and part[1][0] == "=":
-            name = part[0][1].rstrip(":").casefold()
-            try:
-                t.variables[name] = sql_value([part[2]], t.variables)
-            except ValueError:
-                t.variables.pop(name, None)
+    # Session/system settings are irrelevant. User assignments are file-local.
+    for part in split_tokens(tokens, ','):
+        if not part or not part[0][1].startswith('@') or part[0][1].startswith('@@'):
+            continue
+        name = part[0][1].rstrip(':').casefold()
+        if not re.fullmatch(r'@[A-Za-z_][A-Za-z_0-9]*', name):
+            raise ValueError('unsupported SQL user variable name')
+        pos = 1
+        # Lexer splits := into ':' and '='; compact @name:= keeps ':' on name.
+        if pos < len(part) and part[pos][1] == ':':
+            pos += 1
+        if pos >= len(part) or part[pos][0] != '=' or not part[pos + 1:]:
+            raise ValueError('unsupported SQL variable assignment syntax')
+        try:
+            value = assignment_value(part[pos + 1:], t.variables)
+        except ValueError as exc:
+            context = getattr(t, 'assignment_context', None)
+            source, file, phase = context[1:] if context else ('', '', '')
+            expression = ' '.join(v for _, v in part[pos + 1:])[:512]
+            assignment = 'SET ' + ' '.join(repr(v) if k == 'string' else v for k, v in part)[:1024]
+            value = UnresolvedVariable(name, expression, str(exc), assignment, source, file, phase)
+            if context:
+                conn = context[0]
+                message = (f"UNRESOLVED SET source={source} file={file} pass={phase} "
+                           f"variable={name} assignment={assignment}: {exc}")
+                parser_warning(conn, source, file, message)
+                affected = json.dumps(value.__dict__, ensure_ascii=False, sort_keys=True)
+                conn.execute('INSERT INTO parser_diagnostics SELECT ?,?,?,?,?,? WHERE NOT EXISTS '
+                             '(SELECT 1 FROM parser_diagnostics WHERE source=? AND file=? AND table_name=? AND entity=? AND reason=? AND affected_row=?)',
+                             (source, file, 'SET', 'sql_user_variable', str(exc), affected,
+                              source, file, 'SET', 'sql_user_variable', str(exc), affected))
+        # Reassignment replaces stale scalars as well as unresolved expressions.
+        t.variables[name] = value
 
 
 def split_tokens(tokens: list[tuple[str, str]], separator: str) -> list[list[tuple[str, str]]]:
@@ -1313,7 +1518,9 @@ def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variab
                 pos += 1
             continue
         pos += 1
-        if kind == "gossip_menu_option" and col in ("menuid", "menu_id", "optionid", "optionindex", "id"):
+        if kind == "creature_text" and creature_text.ALIASES.get(col,col) in creature_text.KEYS:
+            expression = "json_extract(entity,'$[%d]')" % creature_text.KEYS.index(creature_text.ALIASES.get(col,col))
+        elif kind == "gossip_menu_option" and col in ("menuid", "menu_id", "optionid", "optionindex", "id"):
             expression = "json_extract(entity,'$[%d]')" % (0 if col in ("menuid", "menu_id") else 1)
         elif col in ("entry", "id") and kind != "gossip_menu_option":
             expression = "json_extract(entity,'$')"
@@ -1378,16 +1585,24 @@ def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variab
 
 
 def parser_warning(conn: sqlite3.Connection, source: str, file: str, message: str, *, table_name: str | None = None) -> None:
+    diagnostic_message = message
+    context = SCAN_CONTEXT.get()
+    if context and 'SQL-переменная' in message:
+        phase, tokens = context
+        message = f"source={source} file={file} pass={phase} statement={tokens.statement_context()}: {message}"
     conn.execute("INSERT INTO warnings SELECT ?,?,? WHERE NOT EXISTS (SELECT 1 FROM warnings WHERE source=? AND file=? AND message=?)",
                  (source, file, message, source, file, message))
-    match = re.match(r'(?:REFERENCE LOCALE|INSERT SELECT|UPDATE|DELETE) ([a-z_]+):', message)
-    invalid = re.match(r'INVALID LOCALE ([a-z_]+) (.+?) (\w+) ([a-z_]+): (.*)', message)
+    match = re.match(r'(?:REFERENCE LOCALE|INSERT SELECT|UPDATE|DELETE) ([a-z_]+):', diagnostic_message)
+    invalid = re.match(r'INVALID LOCALE ([a-z_]+) (.+?) (\w+) ([a-z_]+): (.*)', diagnostic_message)
     if match or invalid:
         table = table_name or (match[1] if match else ALL_SPECS[invalid[1]]['source_table'])
         info = table_info(table, source)
         kind = info[0] if info else (invalid[1] if invalid else 'unknown')
         affected = {'scope': 'statement; affected keys not decoded'} if not invalid else {'key': json.loads(invalid[2]), 'locale': invalid[3], 'field': invalid[4]}
-        reason = message.split(': ', 1)[-1]
+        reason = diagnostic_message.split(': ', 1)[-1]
+        if context and 'SQL-переменная' in diagnostic_message:
+            phase, tokens = context
+            affected.update(pass_name=phase, statement=tokens.statement_context())
         serialized = json.dumps(affected, ensure_ascii=False, sort_keys=True)
         conn.execute('INSERT INTO parser_diagnostics SELECT ?,?,?,?,?,? WHERE NOT EXISTS '
                      '(SELECT 1 FROM parser_diagnostics WHERE source=? AND file=? AND table_name=? AND entity=? AND reason=? AND affected_row=?)',
@@ -1423,6 +1638,8 @@ def parse_delete(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
             if table == "gossip_menu_option_box":
                 # This compatibility table contains only the same composite key.
                 conn.execute("DELETE FROM gossip_boxes WHERE source=? AND entity NOT IN (SELECT entity FROM gossip_aux WHERE source=? AND table_name=?)", (source, source, table))
+        except UnresolvedVariableError:
+            raise
         except (ValueError, IndexError) as exc:
             parser_warning(conn, source, file, f"DELETE {table}: {exc}")
         return
@@ -1442,6 +1659,8 @@ def parse_delete(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
             affected = [r[0] for r in conn.execute('SELECT entity FROM entities WHERE source=? AND kind=? AND ' + condition, [source, kind] + params)]
             conn.executemany('DELETE FROM creature_parts WHERE source=? AND table_name=? AND entity=?', [(source, table, key) for key in affected])
         conn.execute(f"DELETE FROM {storage} WHERE source=? AND kind=? AND " + condition, [source, kind] + params)
+    except UnresolvedVariableError:
+        raise
     except (ValueError, IndexError) as exc:
         parser_warning(conn, source, file, f"DELETE {table}: {exc}")
 
@@ -1466,7 +1685,7 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
     if kind == 'npc_text' and table == 'npc_text':
         column = re.sub(r'^probability', 'prob', column)
         return (column, 'entity') if column in (*npc_text.TEXT_FIELDS, *(f'{prefix}{i}' for prefix in ('prob','lang','broadcasttextid') for i in range(npc_text.OPTIONS))) else None
-    if kind in ('creature', 'quest', 'npc_text', npc_text.BROADCAST_KIND, *QUEST_PARTS):
+    if kind in ('creature', 'quest', 'npc_text', 'creature_text', npc_text.BROADCAST_KIND, *QUEST_PARTS):
         if table == spec['target_entity']:
             mapped = identity_fields(kind, {column: 0})
             return (next(iter(mapped)), 'entity') if mapped else None
@@ -1518,7 +1737,14 @@ def apply_simple_update(conn: sqlite3.Connection, source: str, table: str, assig
         return False
     spec = ALL_SPECS[kind]
     if info[1] == "entities":
-        if kind == "gossip_menu_option":
+        if kind == "creature_text":
+            ident=creature_text.key(where)
+            if not valid_entity_key(kind,ident):
+                return False
+            entity=json.dumps(ident)
+            row=conn.execute("SELECT entity,fields FROM entities WHERE source=? AND kind=? AND entity=?",(source,kind,entity)).fetchone()
+            rows=[row] if row else []
+        elif kind == "gossip_menu_option":
             menu = where.get("menuid", where.get("menu_id"))
             option = where.get("optionid", where.get("id"))
             if menu is None or option is None:
@@ -1552,7 +1778,11 @@ def apply_simple_update(conn: sqlite3.Connection, source: str, table: str, assig
                              (json.dumps(raw, ensure_ascii=False), file, rank, source, table, entity))
         return True
     # Locale row updates require an entity key and locale. Wide target rows derive locale from _locN.
-    if kind == "gossip_menu_option":
+    if kind == "creature_text":
+        ident=creature_text.key(where)
+        entity=json.dumps(ident) if valid_entity_key(kind,ident) else None
+        locale=where.get("locale")
+    elif kind == "gossip_menu_option":
         menu, option = where.get("menuid", where.get("menu_id")), where.get("optionid", where.get("id"))
         entity = json.dumps((menu, option)) if menu is not None and option is not None else None
         locale = where.get("locale")
@@ -1730,14 +1960,16 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
             key = json.loads(row[0])
             spec = ALL_SPECS[kind]
             idcol = spec['entity_fields'][0] if storage == 'entities' else spec['target_id'] if table == spec['target_table'] else spec['source_id']
-            where = {"menuid": key[0], "optionid": key[1]} if kind == "gossip_menu_option" else {idcol: key}
+            where = {"menuid": key[0], "optionid": key[1]} if kind == "gossip_menu_option" else dict(zip(creature_text.KEYS,key)) if kind == "creature_text" else {idcol: key}
             if storage == "records":
                 where["locale"] = row[1]
             if not apply_simple_update(conn, source, table, assignments, where, file, rank_for(file)):
                 raise ValueError("UPDATE не применён")
+    except UnresolvedVariableError:
+        raise
     except (ValueError, IndexError) as exc:
         parser_warning(conn, source, file, f"UPDATE {table}: {exc}")
-        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective", "npc_text", npc_text.BROADCAST_KIND):
+        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective", "npc_text", "creature_text", npc_text.BROADCAST_KIND):
             condition, params = "1", []
             try:
                 marker = next(i for i, token in enumerate(tokens) if token[1].upper() == "WHERE")
@@ -1750,7 +1982,10 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
 
 
 def build_index(_: argparse.Namespace) -> int:
-    sources = active_files()
+    sources = tuple(active_files())  # One immutable snapshot for both streaming passes.
+    for source, path, member in sources:
+        if excluded_sql_input(path, member):
+            raise RuntimeError(f"Excluded discovery input: source={source} file={path} member={member}; index untouched")
     if not sources:
         raise RuntimeError("SQL-источники не найдены. Подготовьте externals/core/ and externals/references/<source-id>/repo/ or db/.")
     WORKSPACE.mkdir(parents=True, exist_ok=True)
@@ -1794,6 +2029,7 @@ def build_index(_: argparse.Namespace) -> int:
         conn.commit()
     finalize_schema_evidence(conn)
     npc_text.finalize(sys.modules[__name__],conn)
+    creature_text.finalize(sys.modules[__name__],conn)
     conn.commit()
     print("Индекс построен:", INDEX)
     for source, count in counts.items():
@@ -1872,6 +2108,11 @@ def objective_identity_ok(conn: sqlite3.Connection, entity: str, source: str) ->
 
 
 def entity_key(kind: str, entity_arg: str) -> str:
+    if kind == "creature_text":
+        parts = tuple(int(v) for v in entity_arg.split(","))
+        if not valid_entity_key(kind,parts):
+            raise ValueError("creature_text key must be Entry,GroupID,ID (uint8 group/line)")
+        return json.dumps(parts)
     if kind == "gossip_menu_option":
         values = entity_arg.split(",")
         if len(values) != 2:
@@ -1923,6 +2164,8 @@ def quest_identity_text(value, *, field: str | None = None):
 
 
 def identities_match(kind: str, source: dict, target: dict) -> bool:
+    if kind == 'creature_text':
+        return creature_text.match(sys.modules[__name__],source,target)
     if kind == 'npc_text':
         return any(npc_text.field_match(sys.modules[__name__],source,target,field) for field in npc_text.TEXT_FIELDS)
     if kind in ('creature', 'quest'):
@@ -2026,6 +2269,12 @@ def _primary_compare_value(conn: sqlite3.Connection, kind: str, entity: str, loc
     for source in reference_sources(conn):
         item = get_record(conn, source, kind, entity, locale)
         if item and item[0].get(field) not in (None, ""):
+            if kind == 'creature_text':
+                if field in item[0].get('_adapter_conflicts',{}):
+                    return 'CONFLICT', {'reason':'direct/broadcast translation conflict','adapter_conflict':item[0]['_adapter_conflicts'][field]}
+                english = english_field_evidence(conn,'target',kind,entity,field)
+                if locale == 'ruRU' and english and translation_comparison_text(item[0][field],locale) == translation_comparison_text(english['value'],locale):
+                    npc_rejections.append({'source':source,'value':item[0][field],'reason':'CONFIRMED_ENGLISH_FALLBACK','provenance':item[0].get('_provenance',{}).get(field,{'file':item[1],'table':item[2]}),'target_english':english})
             if kind == 'npc_text':
                 if not npc_text.field_match(sys.modules[__name__],base_entity(conn,source,kind,entity),base_entity(conn,'target',kind,entity),field):
                     return 'UNSUPPORTED', {'reason':source+' npc_text field identity mismatch','field':field,
@@ -2280,8 +2529,8 @@ def _primary_export_rows(conn: sqlite3.Connection, kind: str, entity: str, local
             n = LOCALES[locale]
             table = SPECS[kind]["target_table"]
             assignments = []
-            columns = [SPECS[kind]['target_id']]
-            values = [str(int(numeric_id))]
+            columns = list(creature_text.KEYS) if kind == 'creature_text' else [SPECS[kind]['target_id']]
+            values = [str(int(v)) for v in numeric_id] if kind == 'creature_text' else [str(int(numeric_id))]
             for field, value in fields_out.items():
                 if field.startswith('objective:'):
                     continue
@@ -2503,9 +2752,11 @@ def verified_alias(conn: sqlite3.Connection, kind: str, entity: str, locale: str
 def _primary_bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str, *, allow_single_identity: bool = False,
                   allow_verified_aliases: bool = False) -> tuple[dict, list[str]]:
     key = json.loads(entity)
-    key_parts = key if kind == "gossip_menu_option" and isinstance(key, list) else [key]
-    valid_key = (len(key_parts) == (2 if kind == "gossip_menu_option" else 1)
+    key_parts = key if kind in ("gossip_menu_option","creature_text") and isinstance(key, list) else [key]
+    valid_key = (len(key_parts) == (3 if kind == "creature_text" else 2 if kind == "gossip_menu_option" else 1)
                  and all(isinstance(part, int) and not isinstance(part, bool) and part >= 0 for part in key_parts))
+    if kind == "creature_text":
+        valid_key = valid_key and valid_entity_key(kind,key)
     records = {source: get_record(conn, source, kind, entity, locale) for source in (*reference_sources(conn), "target")}
     fields = text_fields_for(conn, kind, entity)
     values = {source: {field: record[0].get(field) if record else None for field in fields}
@@ -2597,7 +2848,7 @@ def _primary_bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, loc
              "status": status, "reason": reason, "candidates_found": bool(candidates),
              "exported": bool(sql), "identity_failed": bool(candidates and not identity and not proof and not alias),
              "values": values, "provenance": provenance, "fields": comparisons}
-    if kind in ('quest','npc_text'):
+    if kind in ('quest','npc_text','creature_text'):
         for field, detail in comparisons.items():
             detail['exported'] = bool(sql) and detail['status'] in ('MATCH', 'SOURCE_ONLY')
         entry['exported_fields'] = sorted(field for field, detail in comparisons.items() if detail['exported'])
@@ -2691,10 +2942,10 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
             first_entry = True
             for kind in kinds:
                 counts = {name: 0 for name in ("total_target_entities", "candidates_found", "exported", "MATCH", "SOURCE_ONLY", "SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS", "TARGET_IDENTICAL", "CONFLICT", "MISSING", "UNSUPPORTED", "identity_failed", "unsupported", "skipped", "PARTIAL", "exported_fields", "quest_row_fields", "objective_fields", "conflict_fields")}
-                if kind == 'npc_text':
-                    counts.update(npc_text_fields=0, primary_fields=0, supplemental_fields=0, direct_evidence=0, broadcast_backed_evidence=0, unsupported_fields=0)
+                if kind in ('npc_text','creature_text'):
+                    counts.update(npc_text_fields=0, creature_text_fields=0, primary_fields=0, supplemental_fields=0, direct_evidence=0, broadcast_backed_evidence=0, unsupported_fields=0)
                 summary[kind] = counts
-                order = "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),entity" if kind == "gossip_menu_option" else "json_extract(entity,'$'),entity"
+                order = "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),json_extract(entity,'$[2]'),entity" if kind == "creature_text" else "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),entity" if kind == "gossip_menu_option" else "json_extract(entity,'$'),entity"
                 rows = conn.execute("SELECT entity FROM entities WHERE source='target' AND kind=? ORDER BY " + order, (kind,))
                 with (directory / f"{kind}-{locale}.sql").open("w", encoding="utf-8", newline="\n") as sql_file:
                     sql_file.write(f"-- SkyFire 5.4.8; {kind}; {locale}; review SQL, not applied automatically.\n")
@@ -2704,13 +2955,13 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                         counts["total_target_entities"] += 1
                         counts["candidates_found"] += int(entry["candidates_found"])
                         counts[entry["status"]] += 1
-                        if kind in ('quest','npc_text'):
+                        if kind in ('quest','npc_text','creature_text'):
                             selected = entry['exported_fields']
                             counts['exported_fields'] += len(selected)
                             if kind == 'quest':
                                 counts['quest_row_fields'] += sum(not field.startswith('objective:') for field in selected)
                             else:
-                                counts['npc_text_fields'] += len(selected)
+                                counts['creature_text_fields' if kind == 'creature_text' else 'npc_text_fields'] += len(selected)
                                 for field in selected:
                                     detail = entry['fields'][field]
                                     counts['supplemental_fields' if detail.get('decision_origin') == 'supplemental' else 'primary_fields'] += 1
@@ -2726,7 +2977,7 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                             sql_file.write("\n".join(statements) + "\n")
                         else:
                             counts["skipped"] += 1
-                        if kind in ('quest','npc_text') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
+                        if kind in ('quest','npc_text','creature_text') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
                             if not first_entry:
                                 report.write(",\n")
                             first_entry = False
@@ -2769,6 +3020,9 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("index", help="Build the local streaming SQLite index")
+    for command in ("source-scan","source-init","source-validate"):
+        q=sub.add_parser(command,help="Inspect, configure or validate local reference inputs")
+        q.add_argument("source_path",help="Source directory containing repo/ and/or db/")
     for command in ('approve-review', 'publish'):
         q = sub.add_parser(command, help='Record review approval' if command == 'approve-review' else 'Publish hash-bound reviewed SQL, offline')
         q.add_argument('--locale', required=True, choices=tuple(code for code in LOCALES if code != 'enUS'))
@@ -2786,7 +3040,7 @@ def parser() -> argparse.ArgumentParser:
     for cmd in ("inspect", "compare", "export"):
         q = sub.add_parser(cmd)
         q.add_argument("entity_type", choices=tuple(SPECS))
-        q.add_argument("entity_id", help="ID; для gossip_menu_option: MenuID,OptionID")
+        q.add_argument("entity_id", help="ID; gossip_menu_option: MenuID,OptionID; creature_text: Entry,GroupID,ID")
         if cmd != "export":
             q.add_argument("--locale", choices=tuple(LOCALES))
         else:
@@ -2794,7 +3048,7 @@ def parser() -> argparse.ArgumentParser:
             q.add_argument("--output", help="путь для review SQL; по умолчанию stdout")
     q = sub.add_parser("export-manifest", help="создать provenance manifest для review")
     q.add_argument("entity_type", choices=tuple(SPECS))
-    q.add_argument("entity_id", help="ID; для gossip_menu_option: MenuID,OptionID")
+    q.add_argument("entity_id", help="ID; gossip_menu_option: MenuID,OptionID; creature_text: Entry,GroupID,ID")
     q.add_argument("--locale", action="append", choices=tuple(LOCALES))
     q.add_argument("--output", help="JSON path under .tmp/localization/; default stdout")
     return p
@@ -2803,6 +3057,8 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = parser().parse_args()
     try:
+        if args.command in ("source-scan","source-init","source-validate"):
+            return source_setup.command(sys.modules[__name__],args)
         if args.command == "index":
             return build_index(args)
         if args.command == "export-all":
@@ -2816,7 +3072,7 @@ def main() -> int:
         if args.command == "export-manifest":
             return command_manifest(args)
         return command_export(args)
-    except (RuntimeError, ValueError, sqlite3.Error, OSError) as exc:
+    except (RuntimeError, ValueError, sqlite3.Error, OSError, zipfile.BadZipFile) as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
         return 2
 

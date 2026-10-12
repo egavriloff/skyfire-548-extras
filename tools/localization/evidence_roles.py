@@ -68,6 +68,8 @@ def field_english_proof(api, conn, source, kind, entity, field):
         if not api.npc_text.field_match(api, api.base_entity(conn,source,kind,entity), api.base_entity(conn,'target',kind,entity),field):
             return False, origin, target
         a, b = api.quest_identity_text(a), api.quest_identity_text(b)
+    if kind == 'creature_text':
+        a, b = api.quest_identity_text(a), api.quest_identity_text(b)
     if kind == 'quest':
         a, b = api.quest_identity_text(a, field=field), api.quest_identity_text(b, field=field)
     elif field in ('name', 'optiontext'):
@@ -143,7 +145,7 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
                 reason = 'TARGET_NONEMPTY'
             elif bad:
                 reason = 'INVALID_LOCALE_VALUE'
-            elif kind == 'npc_text' and rec and field in rec[0].get('_adapter_conflicts',{}):
+            elif kind in ('npc_text','creature_text') and rec and field in rec[0].get('_adapter_conflicts',{}):
                 reason = 'SUPPLEMENTAL_ADAPTER_CONFLICT'
             elif not isinstance(value, str):
                 reason = 'NON_TEXT_LOCALE_VALUE'
@@ -211,7 +213,7 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
             entry['status'] = 'CONFLICT' if any(r['reason'] == 'SUPPLEMENTAL_TRANSLATION_CONFLICT' for r in observations) else 'UNSUPPORTED'
             entry['reason'] = 'Supplemental evidence blocked; PRIMARY decision remains unchanged'
     entry['supplemental_exported_fields'] = sorted(selected)
-    if kind in ('quest','npc_text'):
+    if kind in ('quest','npc_text','creature_text'):
         entry['exported_fields'] = sorted(set(original['exported_fields']) | set(selected))
         for field in selected:
             entry['fields'][field]['exported'] = True

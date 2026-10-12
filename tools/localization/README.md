@@ -1,7 +1,7 @@
 # Offline localization toolkit
 
 Standard-library Python tooling for ProjectSkyFire 5.4.8 World DB. Supports item,
-gameobject, gossip_menu_option, creature, quest and npc_text. No live DB connection is made.
+gameobject, gossip_menu_option, creature, quest, npc_text and creature_text. No live DB connection is made.
 Repository locations are defined in [repository guidance](../../.agents/repository.md).
 
 ## Developer workflow
@@ -20,7 +20,10 @@ python tools/localization/localize.py export-all --locale ruRU
 
 No inventory or preexisting .tmp/ is required. Discovery streams SQL/ZIP members,
 excluding old, pending, archive, archives, deprecated and legacy directory segments
-at any depth, case-insensitively. External inputs are read-only. The index is
+at any depth, case-insensitively. Physical path aliases and ZIP members are checked
+against the same exclusions. Both streaming passes share one frozen discovery
+snapshot; adapters consume indexed rows without rediscovering SQL files. Parser
+errors include source, file, pass and bounded statement context. External inputs are read-only. The index is
 .tmp/localization/index/localization-index.sqlite3. Precedence is repo/sql/base,
 then release/full db dumps, then other active SQL ordered by path.
 The parser supports literal INSERT/REPLACE, limited UPDATE/DELETE/variables and
@@ -293,3 +296,135 @@ source, file, table, entity kind, reason and affected key/row or statement scope
 Unsupported identity updates remain incomplete evidence. JOIN updates assigning
 only the known non-identity `creature_template.gossip_menu_id` are ignored; this
 does not permit arbitrary JOIN execution or change matching/trust policies.
+
+## Creature speech
+
+`creature_text` localizes database-driven SAY/YELL/EMOTE speech. The target is
+`locales_creature_text(entry, groupid, id, text_loc1 ... text_loc11)`; ruRU uses
+`text_loc8`. CLI keys are `Entry,GroupID,ID` (group and line are uint8).
+
+```sh
+python tools/localization/localize.py inspect creature_text 197,0,0 --locale ruRU
+python tools/localization/localize.py compare creature_text 197,0,0 --locale ruRU
+python tools/localization/localize.py export creature_text 197,0,0 --locale ruRU
+```
+
+Adapters recognize wide `locales_creature_text`, row `creature_text_locale`, and
+explicit source-local `creature_text.BroadcastTextID -> broadcast_text ->
+broadcast_text_locale` relationships. CreatureID/entry and text_group/groupid
+aliases are schema aliases, not source-specific behavior. Only the single target
+Text variant is transferred; unsupported female variants are not target columns.
+Broadcast IDs are never compared or copied across sources. Both the source's
+English Text and language must confirm its broadcast relationship.
+
+Matching requires the complete composite key, nonempty English Text (existing
+representation comparison only), and equal type, language, probability, emote,
+duration and sound. Missing required evidence blocks use. Available range must
+match; target schema has no range and defaults to normal (zero). Additional
+structural fields are compared when available on both sides. `$N/$n` remains
+strict here; the quest.details exception does not apply to creature speech.
+
+Each line is independent: a conflict in one line does not block another line of
+the same creature. PRIMARY/SUPPLEMENTAL rules, confirmed English fallback
+rejection, raw text preservation and empty-target protection apply unchanged.
+Reports retain per-line field provenance, role/config fingerprint and direct or
+broadcast-backed relationship chains. Source-local adapter conflicts are not
+resolved by precedence.
+
+SkyFire already loads these locale slots and selects the session DB locale in
+CreatureTextMgr chat builders, with fallback to base English when locale text is
+empty or absent. This support does not translate hardcoded script strings that
+bypass CreatureTextMgr, and requires an explicit future index rebuild before
+using a previously generated production index.
+
+## Streaming SQL user variables
+
+Each file/ZIP member and each streaming pass starts with fresh variable state.
+All SET statements are replayed, including assignments used by unrelated tables.
+Supported user assignments are `SET @name = literal`, `SET @name := literal`,
+and assignments from an already known variable (case-insensitive variable names).
+Typed literals are decimal integers/floats, strings, NULL and boolean literals.
+Comma-separated assignments are evaluated from left to right; reassignment replaces
+only that file's value.
+
+SET supports bounded integer `+`, `-`, `*`, unary signs and parentheses, with
+standard precedence (`*` before `+`/`-`), for example
+`SET @PATH := (@GUID + 1) * 10`. Every operand must be an integer literal or an
+already known integer variable. Signed 64-bit overflow is rejected at each step;
+expression length, token count and nesting depth are bounded. Division, other
+operators, functions, subqueries, system-variable reads and string/float arithmetic
+are not evaluated. These expressions are supported only in assignments; existing
+INSERT/UPDATE/DELETE literal-variable substitution remains unchanged.
+Unsupported user assignments produce warnings and replace the old value with an
+UNRESOLVED state containing expression and source/file/pass assignment provenance.
+They are never executed. Irrelevant gameplay/DDL statements do not require their
+values. An unresolved variable required by an indexed key, value or predicate
+blocks parsing with use and assignment context. A later supported reassignment
+restores a resolved scalar. Unrelated session/system SET settings remain ignored.
+Unknown or unresolved variables never become synthetic NULL/zero values. Resolved variables substitute
+as typed literals in INSERT VALUES and already-supported UPDATE/DELETE predicates.
+No SQL engine, eval or live database is involved.
+
+## Reference onboarding
+
+Use a source directory containing repo/ and/or db/:
+
+```sh
+python tools/localization/localize.py source-scan externals/references/source-a
+python tools/localization/localize.py source-init externals/references/source-a
+python tools/localization/localize.py source-validate externals/references/source-a
+```
+
+`source-scan` is read-only. It streams SQL/ZIP headers and DDL, reports input and
+archive-member sizes, discovered table/column signatures and excluded directories.
+Dataset hints (world, hotfixes, auth, characters, unknown) come from signatures,
+never filenames or directory/source names. Mixed or unrecognized signatures stay
+unknown. Hints are not schema compatibility, identity proof or trust assignments.
+
+`source-init` uses numbered terminal prompts. Choose primary, supplemental or
+code_schema explicitly (new sources default to supplemental), then select input
+numbers separated by commas, all or none. Repository SQL parents are selectable
+trees; DB SQL/ZIP members are individually selectable. Choose a dataset role for
+each selection and optionally exclude repository trees. The wizard shows the
+complete proposal and resolved list and asks before writing/replacing source.json.
+Ctrl+C/EOF cancels without altering it. The replacement uses a flushed temporary
+file in the same directory and an atomic rename; failed writes preserve the old
+file. A config changed during the wizard is rejected.
+
+An optional explicit config looks like:
+
+```json
+{
+  "evidence_role": "supplemental",
+  "inputs": [
+    {"path": "repo/sql", "dataset_role": "world"},
+    {"path": "db/arbitrary.zip", "member": "data/tables.sql", "dataset_role": "hotfixes"}
+  ],
+  "exclude": ["repo/sql/updates/auth"]
+}
+```
+
+Paths are portable source-relative paths under repo/ or db/. A directory selection
+includes active SQL/ZIP descendants; a ZIP selection can optionally name one member.
+Global old/pending/archive/archives/deprecated/legacy exclusions always apply.
+Overlapping selections, duplicates, missing inputs, invalid roles, escaping paths
+and unknown config keys fail validation. Empty input selections are allowed only
+for code_schema sources. `source-validate` shows the resolved input list without
+reading SQL payloads or writing artifacts.
+
+Configs with only evidence_role/optional alias_role remain compatible and retain
+existing automatic discovery. Explicit inputs change only the user-selected file
+set: precedence, evidence roles, matching and conflict policy remain unchanged.
+Dataset roles are descriptive metadata, not automatic adapters or trust. The full
+config remains covered by its existing provenance fingerprint. Onboarding does
+not rebuild the production index or generate/publish SQL.
+
+### Checking Unicode in review SQL
+
+Source SQL, SQLite text and generated review files use Unicode/UTF-8. Open
+review SQL explicitly as UTF-8; a Windows legacy encoding can display valid
+Cyrillic UTF-8 bytes as mojibake. When investigating, compare the raw file bytes,
+indexed value and generated SQL before changing adapters or source text. SQL
+escaping preserves text and placeholders; the toolkit does not reverse-decode
+mojibake. A correct file alone does not verify an importer connection encoding
+or the contents of an already imported database.

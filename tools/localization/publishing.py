@@ -100,7 +100,7 @@ def validate_statement(line: str, kind: str, table: str, columns: list[str], loc
         if dict(zip(columns,values)).get('Locale') != "'" + locale + "'":
             raise ValueError('Unexpected row locale')
     else:
-        keys = [specs[kind]['target_id']]; use_values = False
+        keys = list(specs[kind]['target_id']) if isinstance(specs[kind]['target_id'],tuple) else [specs[kind]['target_id']]; use_values = False
     if columns[:len(keys)] != keys or any(not v.isdecimal() for c,v in zip(columns,values) if c in keys and c.lower() != 'locale'):
         raise ValueError('Invalid entity key columns')
     expected = [')','ON','DUPLICATE','KEY','UPDATE']
@@ -172,7 +172,7 @@ def publish(directory: Path, output: Path, locale: str, kinds: list[str] | None,
                         elif kind == 'gossip_menu_option':
                             allowed = {'MenuID','OptionID','Locale','OptionText','BoxText'}
                         else:
-                            allowed = {specs[kind]['target_id']} | {pattern.format(n=locales[locale]) for pattern in specs[kind]['wide_fields'].values()}
+                            allowed = (set(specs[kind]['target_id']) if isinstance(specs[kind]['target_id'],tuple) else {specs[kind]['target_id']}) | {pattern.format(n=locales[locale]) for pattern in specs[kind]['wide_fields'].values()}
                         if not columns or not set(columns).issubset(allowed):
                             raise ValueError(f'Unexpected target columns for {kind}')
                         validate_statement(line,kind,table,columns,locale,specs,locales)
