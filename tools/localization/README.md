@@ -1,7 +1,7 @@
 # Offline localization toolkit
 
 Standard-library Python tooling for ProjectSkyFire 5.4.8 World DB. Supports item,
-gameobject, gossip_menu_option, creature, quest, npc_text and creature_text. No live DB connection is made.
+gameobject, gossip_menu_option, creature, quest, npc_text, creature_text and page_text. No live DB connection is made.
 Repository locations are defined in [repository guidance](../../.agents/repository.md).
 
 ## Developer workflow
@@ -270,8 +270,11 @@ changed or unapproved inputs fail. --input-dir selects another reviewed director
 under .tmp/localization/ on both commands. Publishing does not need an index.
 
 publish writes localizations/<locale>/<entity>.sql and manifest.json; quest objective
-descriptions are split into quest_objective.sql. Provenance, exception flags,
-review hashes and acknowledged exclusion counters are retained. Repeated publish
+descriptions are split into quest_objective.sql. Review SQL retains per-row
+provenance comments. Published SQL contains only a short file header and the
+unchanged statements in their original order. Deduplicated review comments and
+exception flags are retained in manifest.json alongside review hashes, summary
+and acknowledged exclusion counters. Repeated publish
 is byte-identical. It applies no SQL and makes no commit. Historical review/smoke
 files without bundle/approval are not publication inputs.
 
@@ -428,3 +431,30 @@ indexed value and generated SQL before changing adapters or source text. SQL
 escaping preserves text and placeholders; the toolkit does not reverse-decode
 mojibake. A correct file alone does not verify an importer connection encoding
 or the contents of an already imported database.
+
+## Page text
+
+`page_text` supports linked book/item/gameobject pages. The authoritative target
+is `page_text(entry, text, next_page)` with `locales_page_text.Text_locN`; ruRU
+uses `Text_loc8`. Reference adapters accept wide locales and row-based
+`page_text_locale`, with schema aliases `ID`, `NextPage` and `NextPageID`.
+All base pages are indexed, including untranslated successors. After active
+updates, each source-local chain must terminate at zero with no missing pages,
+cycles or incomplete identity. Cross-source proof requires matching page keys,
+English texts and next-page links throughout the chain. English representation
+comparison preserves placeholder case and uses the existing whitespace handling.
+
+PRIMARY consensus and SUPPLEMENTAL missing-only rules apply unchanged. Confirmed
+English-only ruRU fallback is not exported. Reports retain source/config role,
+raw locale provenance and the base relationship chain; counters include
+`page_text_fields`, `primary_fields` and `supplemental_fields`. Existing target
+translations are protected by empty-target-only updates.
+
+```sh
+python tools/localization/localize.py inspect page_text 15 --locale ruRU
+python tools/localization/localize.py compare page_text 15 --locale ruRU
+python tools/localization/localize.py export page_text 15 --locale ruRU
+```
+
+Older indexes without page chain proof cannot export pages; reindex only when
+explicitly requested. Locale SQL does not modify base text or `next_page`.

@@ -24,6 +24,7 @@ import publishing
 import evidence_roles
 import npc_text
 import creature_text
+import page_text
 import source_setup
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
@@ -87,6 +88,11 @@ SPECS['creature_text'] = {'source_table':'creature_text_locale', 'target_table':
     'target_id':creature_text.KEYS, 'source_locale':'locale', 'text_fields':{'text':'text'},
     'source_target_fields':{'text':'text'}, 'wide_fields':{'text':'text_loc{n}'}}
 
+SPECS['page_text'] = {'source_table':'page_text_locale', 'target_table':'locales_page_text',
+    'target_entity':'page_text', 'entity_fields':('entry',), 'source_id':'entry', 'target_id':'entry',
+    'source_locale':'locale', 'text_fields':{'text':'text'}, 'source_target_fields':{'text':'text'},
+    'wide_fields':{'text':'Text_loc{n}'}}
+
 # Internal quest parts; these are not separate CLI entity types.
 QUEST_PARTS = {
     'quest_offer_reward': ('quest_offer_reward_locale', 'offerrewardtext', 'rewardtext'),
@@ -118,6 +124,8 @@ def locale_table_kind(table: str) -> str | None:
 
 def canonical_row(kind: str, row: dict) -> dict:
     row = dict(row)
+    if kind == 'page_text':
+        row = page_text.canonical(row)
     if kind == 'creature_text':
         row = creature_text.canonical(row)
     if kind == 'npc_text':
@@ -813,7 +821,7 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
             continue
         fields = {}
         for canonical, pattern in spec["wide_fields"].items():
-            col = pattern.format(n=index)
+            col = pattern.format(n=index).lower()
             value = row.get(col)
             if value not in (None, ""):
                 fields[canonical] = value
@@ -825,6 +833,8 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
 
 def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
     row = canonical_row(kind, row)
+    if kind == 'page_text':
+        return {k:row[k] for k in ('text', 'next_page', '_evidence_incomplete') if k in row}
     if kind == 'creature_text':
         return {k:row[k] for k in ('text', *creature_text.STRUCT, 'textrange','broadcasttextid','soundtype','mintimer','maxtimer','spellid') if k in row}
     if kind == 'npc_text':
@@ -854,6 +864,8 @@ def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
 
 
 def valid_entity_key(kind, key):
+    if kind == 'page_text':
+        return type(key) is int and key > 0
     if kind == 'npc_text' and key == 0:
         return False  # LoadGossipText reserves zero.
     if kind == 'creature_text':
@@ -873,6 +885,8 @@ def schema_warning(conn, source, file, table, kind, reason, key=None, row=None, 
 
 
 def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[str, object], file: str, rank: int, table_name: str | None = None) -> None:
+    if kind == 'page_text':
+        row = page_text.canonical(row)
     spec = ALL_SPECS[kind]
     if kind == "gossip_menu_option":
         ident = (row.get("menuid", row.get("menu_id")), row.get("optionid", row.get("optionindex", row.get("id"))))
@@ -887,7 +901,7 @@ def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[s
     if not fields:
         schema_warning(conn, source, file, table_name or spec['target_entity'], kind, 'missing base identity fields; row rejected', ident, row)
         return
-    required = {'creature': {'name', 'type', 'unit_class'}, 'quest': {'title', 'objectives', 'details', 'minlevel'}, 'creature_text': {'text', *creature_text.STRUCT}}.get(kind, set())
+    required = {'creature': {'name', 'type', 'unit_class'}, 'quest': {'title', 'objectives', 'details', 'minlevel'}, 'creature_text': {'text', *creature_text.STRUCT}, 'page_text': {'text', 'next_page'}}.get(kind, set())
     missing = sorted(required - set(fields))
     if missing:
         fields['_evidence_incomplete'] = 1
@@ -960,7 +974,7 @@ def reference_locale_plan(table: str, cols: list[str]) -> tuple[str, tuple[str, 
         return kind, keys, {'description': ('description', 'row')}
     patterns = ({'optiontext': 'option_text_loc{n}', 'boxtext': 'box_text_loc{n}'}
                 if kind == 'gossip_menu_option' else ALL_SPECS[kind]['wide_fields'])
-    known = {pattern.format(n=n): (field, locale) for field, pattern in patterns.items()
+    known = {pattern.format(n=n).lower(): (field, locale) for field, pattern in patterns.items()
              for locale, n in LOCALES.items() if n > 0}
     female = {prefix + '_female_loc' + str(n) for prefix in ('option_text', 'box_text') for n in range(1, 12)} if kind == 'gossip_menu_option' else {f'text_female_loc{n}' for n in range(1,12)} if kind == 'creature_text' else set()
     unknown = set(cols) - set(keys) - set(known) - female - {"verifiedbuild"}
@@ -1093,7 +1107,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     while True:
         x = t.get()
         if x[0] == "(":
-            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'creature_text', 'broadcast_text', *QUEST_PARTS):
+            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'creature_text', 'page_text', 'broadcast_text', *QUEST_PARTS):
                 first_index = next((cols.index(c) for c in ("entry", "menuid", "menu_id", "id") if c in cols), -1)
                 if table in ('gossip_menu_option', 'gossip_menu_option_box', 'gossip_menu_option_action') and (len(cols) < 2 or cols[0] not in ('menuid', 'menu_id') or cols[1] not in ('optionid', 'optionindex', 'id')):
                     first_index = -1  # Sparse composite reads require proven column order.
@@ -1176,7 +1190,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                             for locale, n in LOCALES.items():
                                 if n == 0:
                                     continue
-                                fields = {key: row.get(pattern.format(n=n)) for key, pattern in ALL_SPECS[spec_kind]["wide_fields"].items()}
+                                fields = {key: row.get(pattern.format(n=n).lower()) for key, pattern in ALL_SPECS[spec_kind]["wide_fields"].items()}
                                 persist_locale(conn, source, spec_kind, json.dumps(entity), locale, fields, file, rank, table)
                     else:
                         normalized = normalized_row(source, table, cols, vals)
@@ -1685,7 +1699,7 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
     if kind == 'npc_text' and table == 'npc_text':
         column = re.sub(r'^probability', 'prob', column)
         return (column, 'entity') if column in (*npc_text.TEXT_FIELDS, *(f'{prefix}{i}' for prefix in ('prob','lang','broadcasttextid') for i in range(npc_text.OPTIONS))) else None
-    if kind in ('creature', 'quest', 'npc_text', 'creature_text', npc_text.BROADCAST_KIND, *QUEST_PARTS):
+    if kind in ('creature', 'quest', 'npc_text', 'creature_text', 'page_text', npc_text.BROADCAST_KIND, *QUEST_PARTS):
         if table == spec['target_entity']:
             mapped = identity_fields(kind, {column: 0})
             return (next(iter(mapped)), 'entity') if mapped else None
@@ -1697,7 +1711,7 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
             if field in mapped:
                 return field, 'locale'
         for field, pattern in spec['wide_fields'].items():
-            match = re.fullmatch(re.escape(pattern.split('{n}')[0]) + r'(\d+)', column)
+            match = re.fullmatch(re.escape(pattern.split('{n}')[0].lower()) + r'(\d+)', column)
             if match:
                 code = next((code for code, n in LOCALES.items() if n == int(match[1])), None)
                 return (field, code) if code else None
@@ -1722,7 +1736,7 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
             return source_aliases[column], "locale"
         if kind != "gossip_menu_option":
             for field, pattern in spec["wide_fields"].items():
-                match = re.fullmatch(re.escape(pattern.split("{n}")[0]) + r"(\d+)", column)
+                match = re.fullmatch(re.escape(pattern.split("{n}")[0].lower()) + r"(\d+)", column)
                 if match:
                     index = int(match.group(1))
                     locale = next((code for code, value in LOCALES.items() if value == index), None)
@@ -1969,7 +1983,7 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         raise
     except (ValueError, IndexError) as exc:
         parser_warning(conn, source, file, f"UPDATE {table}: {exc}")
-        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective", "npc_text", "creature_text", npc_text.BROADCAST_KIND):
+        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective", "npc_text", "creature_text", "page_text", npc_text.BROADCAST_KIND):
             condition, params = "1", []
             try:
                 marker = next(i for i, token in enumerate(tokens) if token[1].upper() == "WHERE")
@@ -2030,6 +2044,7 @@ def build_index(_: argparse.Namespace) -> int:
     finalize_schema_evidence(conn)
     npc_text.finalize(sys.modules[__name__],conn)
     creature_text.finalize(sys.modules[__name__],conn)
+    page_text.finalize(sys.modules[__name__],conn)
     conn.commit()
     print("Индекс построен:", INDEX)
     for source, count in counts.items():
@@ -2164,6 +2179,8 @@ def quest_identity_text(value, *, field: str | None = None):
 
 
 def identities_match(kind: str, source: dict, target: dict) -> bool:
+    if kind == 'page_text':
+        return page_text.match(sys.modules[__name__], source, target)
     if kind == 'creature_text':
         return creature_text.match(sys.modules[__name__],source,target)
     if kind == 'npc_text':
@@ -2269,7 +2286,12 @@ def _primary_compare_value(conn: sqlite3.Connection, kind: str, entity: str, loc
     for source in reference_sources(conn):
         item = get_record(conn, source, kind, entity, locale)
         if item and item[0].get(field) not in (None, ""):
-            if kind == 'creature_text':
+            if kind == 'page_text' and not page_text.match(sys.modules[__name__],
+                    base_entity(conn, source, kind, entity), base_entity(conn, 'target', kind, entity)):
+                return 'UNSUPPORTED', {'reason': source + ' page_text chain identity unproven',
+                                       'source_page': base_entity(conn, source, kind, entity),
+                                       'target_page': base_entity(conn, 'target', kind, entity)}
+            if kind in ('creature_text', 'page_text'):
                 if field in item[0].get('_adapter_conflicts',{}):
                     return 'CONFLICT', {'reason':'direct/broadcast translation conflict','adapter_conflict':item[0]['_adapter_conflicts'][field]}
                 english = english_field_evidence(conn,'target',kind,entity,field)
@@ -2848,7 +2870,7 @@ def _primary_bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, loc
              "status": status, "reason": reason, "candidates_found": bool(candidates),
              "exported": bool(sql), "identity_failed": bool(candidates and not identity and not proof and not alias),
              "values": values, "provenance": provenance, "fields": comparisons}
-    if kind in ('quest','npc_text','creature_text'):
+    if kind in ('quest','npc_text','creature_text','page_text'):
         for field, detail in comparisons.items():
             detail['exported'] = bool(sql) and detail['status'] in ('MATCH', 'SOURCE_ONLY')
         entry['exported_fields'] = sorted(field for field, detail in comparisons.items() if detail['exported'])
@@ -2944,6 +2966,8 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                 counts = {name: 0 for name in ("total_target_entities", "candidates_found", "exported", "MATCH", "SOURCE_ONLY", "SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS", "TARGET_IDENTICAL", "CONFLICT", "MISSING", "UNSUPPORTED", "identity_failed", "unsupported", "skipped", "PARTIAL", "exported_fields", "quest_row_fields", "objective_fields", "conflict_fields")}
                 if kind in ('npc_text','creature_text'):
                     counts.update(npc_text_fields=0, creature_text_fields=0, primary_fields=0, supplemental_fields=0, direct_evidence=0, broadcast_backed_evidence=0, unsupported_fields=0)
+                if kind == 'page_text':
+                    counts.update(page_text_fields=0, primary_fields=0, supplemental_fields=0, unsupported_fields=0)
                 summary[kind] = counts
                 order = "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),json_extract(entity,'$[2]'),entity" if kind == "creature_text" else "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),entity" if kind == "gossip_menu_option" else "json_extract(entity,'$'),entity"
                 rows = conn.execute("SELECT entity FROM entities WHERE source='target' AND kind=? ORDER BY " + order, (kind,))
@@ -2970,6 +2994,15 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                                 counts['unsupported_fields'] += sum(d['status'] == 'UNSUPPORTED' for d in entry['fields'].values())
                             counts['objective_fields'] += sum(field.startswith('objective:') for field in selected)
                             counts['conflict_fields'] += sum(detail['status'] == 'CONFLICT' for detail in entry['fields'].values())
+                        if kind == 'page_text':
+                            selected = entry['exported_fields']
+                            counts['exported_fields'] += len(selected)
+                            counts['page_text_fields'] += len(selected)
+                            counts['conflict_fields'] += sum(d['status'] == 'CONFLICT' for d in entry['fields'].values())
+                            counts['unsupported_fields'] += sum(d['status'] == 'UNSUPPORTED' for d in entry['fields'].values())
+                            for field in selected:
+                                detail = entry['fields'][field]
+                                counts['supplemental_fields' if detail.get('decision_origin') == 'supplemental' else 'primary_fields'] += 1
                         counts["identity_failed"] += int(entry["identity_failed"])
                         counts["unsupported"] += int(entry["status"] == "UNSUPPORTED")
                         if statements:
@@ -2977,7 +3010,7 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                             sql_file.write("\n".join(statements) + "\n")
                         else:
                             counts["skipped"] += 1
-                        if kind in ('quest','npc_text','creature_text') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
+                        if kind in ('quest','npc_text','creature_text','page_text') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
                             if not first_entry:
                                 report.write(",\n")
                             first_entry = False
