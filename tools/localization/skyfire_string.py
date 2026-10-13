@@ -8,7 +8,7 @@ PRINTF = re.compile(r'%([-+ #0]*)([0-9]*)(?:\.([0-9]+))?(ll|l|z)?([sdiufxXco])')
 WOW = re.compile(r'\$(?:[nNaB]|[0-9]+W?)')
 
 
-def contract(value):
+def contract(value, *, wow_pattern=WOW):
     if not isinstance(value, str):
         raise ValueError('non-text format string')
     printf, wow, forms = [], [], []
@@ -36,19 +36,19 @@ def contract(value):
                 raise ValueError('malformed WoW gender token at offset ' + str(i))
             wow.append('$g')
             # Preserve tokens inside both gender branches, but not translated words.
-            nested = contract(value[i+2:end])
+            nested = contract(value[i+2:end], wow_pattern=wow_pattern)
             wow.extend(nested['wow']); i = end + 1; continue
-        m = WOW.match(value, i)
+        m = wow_pattern.match(value, i)
         if not m:
             raise ValueError('unknown/malformed WoW token at offset ' + str(i))
         wow.append(m[0]); i = m.end()
     return {'printf': printf, 'wow': wow, 'printf_forms': forms}
 
 
-def validate(english, translation):
+def validate(english, translation, *, wow_pattern=WOW):
     try:
-        expected = contract(english)
-        actual = contract(translation)
+        expected = contract(english, wow_pattern=wow_pattern)
+        actual = contract(translation, wow_pattern=wow_pattern)
     except ValueError as exc:
         return {'valid': False, 'reason': str(exc)}
     if len(actual['printf']) < len(expected['printf']):reason = 'missing placeholder'

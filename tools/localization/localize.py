@@ -29,6 +29,7 @@ import page_text
 import points_of_interest
 import skyfire_string
 import db_script_string
+import achievement_reward
 import source_setup
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
@@ -109,6 +110,11 @@ SPECS['skyfire_string'] = {'source_table':'trinity_string', 'target_table':'skyf
 
 SPECS['db_script_string'] = {**SPECS['skyfire_string'], 'source_table':'db_script_string',
     'target_table':'db_script_string', 'target_entity':'db_script_string'}
+SPECS['achievement_reward'] = {'source_table':'achievement_reward_locale', 'target_table':'locales_achievement_reward',
+    'target_entity':'achievement_reward', 'entity_fields':('entry',), 'source_id':'id', 'target_id':'entry',
+    'source_locale':'locale', 'text_fields':{'subject':'subject','text':'text'},
+    'source_target_fields':{'subject':'subject','text':'text'},
+    'wide_fields':{'subject':'subject_loc{n}','text':'text_loc{n}'}}
 INLINE_STRING_TABLES = (*skyfire_string.TABLES, *db_script_string.TABLES)
 
 # Internal quest parts; these are not separate CLI entity types.
@@ -146,6 +152,8 @@ def locale_table_kind(table: str) -> str | None:
 
 def canonical_row(kind: str, row: dict) -> dict:
     row = dict(row)
+    if kind == 'achievement_reward':
+        row = achievement_reward.canonical(row)
     if kind == 'points_of_interest':
         row = points_of_interest.canonical(row)
     if kind == 'page_text':
@@ -831,6 +839,8 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
         if not valid_entity_key(kind, entity) or locale not in LOCALES:
             return None
         fields = {key: row.get(col) for key, col in spec["source_target_fields"].items()}
+        if kind == 'achievement_reward' and row.get('_evidence_incomplete'):
+            fields['_schema_unsupported'] = True
         if table == 'creature_template_wdb_locale':
             entity = row.get('id')
             if not valid_entity_key(kind, entity):
@@ -860,6 +870,8 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
 
 def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
     row = canonical_row(kind, row)
+    if kind == 'achievement_reward':
+        return {k:row[k] for k in ('entry', *achievement_reward.STRUCT, *achievement_reward.FIELDS, *achievement_reward.EXTRA_DEFAULTS, '_evidence_incomplete') if k in row}
     if kind == 'points_of_interest':
         return {k:row[k] for k in (*points_of_interest.BASE_FIELDS, '_evidence_incomplete') if k in row}
     if kind in ('skyfire_string','db_script_string'):
@@ -922,6 +934,8 @@ def schema_warning(conn, source, file, table, kind, reason, key=None, row=None, 
 
 
 def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[str, object], file: str, rank: int, table_name: str | None = None) -> None:
+    if kind == 'achievement_reward':
+        row = achievement_reward.canonical(row)
     if kind == 'points_of_interest':
         row = points_of_interest.canonical(row)
     if kind == 'page_text':
@@ -940,7 +954,10 @@ def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[s
     if not fields:
         schema_warning(conn, source, file, table_name or spec['target_entity'], kind, 'missing base identity fields; row rejected', ident, row)
         return
-    required = {'creature': {'name', 'type', 'unit_class'}, 'quest': {'title', 'objectives', 'details', 'minlevel'}, 'creature_text': {'text', *creature_text.STRUCT}, 'page_text': {'text', 'next_page'}, 'points_of_interest': set(points_of_interest.BASE_FIELDS)}.get(kind, set())
+    required = {'creature': {'name', 'type', 'unit_class'}, 'quest': {'title', 'objectives', 'details', 'minlevel'}, 'creature_text': {'text', *creature_text.STRUCT}, 'page_text': {'text', 'next_page'}, 'points_of_interest': set(points_of_interest.BASE_FIELDS), 'achievement_reward': {'entry', *achievement_reward.STRUCT}}.get(kind, set())
+    if kind == 'achievement_reward':
+        fields['_english_provenance'] = {f:{'file':file,'table':table_name or spec['target_entity'],
+            'field':'body' if f=='text' and 'body' in row else f} for f in achievement_reward.FIELDS if f in fields}
     if kind in ('skyfire_string','db_script_string'):
         fields['_english_provenance'] = {'content':{'file':file,'table':table_name or SPECS[kind]['target_entity'],'field':'content_default'}}
     missing = sorted(required - set(fields))
@@ -1156,7 +1173,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     while True:
         x = t.get()
         if x[0] == "(":
-            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'creature_text', 'page_text', 'skyfire_string', 'trinity_string', 'db_script_string', 'broadcast_text', 'points_of_interest', *points_of_interest.GOSSIP, *QUEST_PARTS):
+            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'creature_text', 'page_text', 'skyfire_string', 'trinity_string', 'db_script_string', 'achievement_reward', 'broadcast_text', 'points_of_interest', *points_of_interest.GOSSIP, *QUEST_PARTS):
                 first_index = next((cols.index(c) for c in ("entry", "menuid", "menu_id", "id") if c in cols), -1)
                 if table in ('gossip_menu_option', 'gossip_menu_option_box', 'gossip_menu_option_action') and (len(cols) < 2 or cols[0] not in ('menuid', 'menu_id') or cols[1] not in ('optionid', 'optionindex', 'id')):
                     first_index = -1  # Sparse composite reads require proven column order.
@@ -1777,7 +1794,7 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
     if kind == 'npc_text' and table == 'npc_text':
         column = re.sub(r'^probability', 'prob', column)
         return (column, 'entity') if column in (*npc_text.TEXT_FIELDS, *(f'{prefix}{i}' for prefix in ('prob','lang','broadcasttextid') for i in range(npc_text.OPTIONS))) else None
-    if kind in ('creature', 'quest', 'npc_text', 'creature_text', 'page_text', 'points_of_interest', npc_text.BROADCAST_KIND, *QUEST_PARTS):
+    if kind in ('creature', 'quest', 'npc_text', 'creature_text', 'page_text', 'points_of_interest', 'achievement_reward', npc_text.BROADCAST_KIND, *QUEST_PARTS):
         if table == spec['target_entity']:
             mapped = identity_fields(kind, {column: 0})
             return (next(iter(mapped)), 'entity') if mapped else None
@@ -2067,7 +2084,7 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         raise
     except (ValueError, IndexError) as exc:
         parser_warning(conn, source, file, f"UPDATE {table}: {exc}")
-        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective", "npc_text", "creature_text", "page_text", "points_of_interest", npc_text.BROADCAST_KIND):
+        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective", "npc_text", "creature_text", "page_text", "points_of_interest", "achievement_reward", npc_text.BROADCAST_KIND):
             condition, params = "1", []
             try:
                 marker = next(i for i, token in enumerate(tokens) if token[1].upper() == "WHERE")
@@ -2264,6 +2281,8 @@ def quest_identity_text(value, *, field: str | None = None):
 
 
 def identities_match(kind: str, source: dict, target: dict) -> bool:
+    if kind == 'achievement_reward':
+        return achievement_reward.structure(source,target)[0]
     if kind == 'db_script_string':
         return db_script_string.match(sys.modules[__name__],source,target)
     if kind in ('skyfire_string','db_script_string'):
@@ -3004,6 +3023,8 @@ def _primary_bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, loc
 
 
 def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str, *, allow_single_identity=False, allow_verified_aliases=False):
+    if kind == 'achievement_reward':
+        return achievement_reward.decide(sys.modules[__name__],conn,entity,locale)
     if kind == 'points_of_interest':
         return points_of_interest.decide(sys.modules[__name__],conn,entity,locale)
     return evidence_roles.decide(sys.modules[__name__], conn, kind, entity, locale,
@@ -3082,6 +3103,8 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                     counts.update(npc_text_fields=0, creature_text_fields=0, primary_fields=0, supplemental_fields=0, direct_evidence=0, broadcast_backed_evidence=0, unsupported_fields=0)
                 if kind in ('page_text','skyfire_string','db_script_string'):
                     counts.update(page_text_fields=0, primary_fields=0, supplemental_fields=0, unsupported_fields=0)
+                if kind == 'achievement_reward':
+                    counts.update(structural_mismatch=0, full_structural_identity=0, subject_fields=0, text_fields=0, achievement_reward_fields=0, primary_fields=0, supplemental_fields=0, unsupported_fields=0, placeholder_failures=0, confirmed_english_fallback=0, existing_target_protected=0)
                 if kind == 'points_of_interest':
                     counts.update(AMBIGUOUS=0, exact_identity_matches=0, relationship_remapped_matches=0, primary_fields=0, supplemental_fields=0, existing_target_protected=0, confirmed_english_fallback=0, coordinate_mismatch=0, structural_mismatch=0, ambiguous_mapping=0, relationship_proof_failure=0)
                 if kind in ('skyfire_string','db_script_string'):
@@ -3098,6 +3121,8 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                         counts["total_target_entities"] += 1
                         counts["candidates_found"] += int(entry["candidates_found"])
                         counts[entry["status"]] += 1
+                        if kind == 'achievement_reward':
+                            achievement_reward.count_entry(counts,entry)
                         if kind in ('quest','npc_text','creature_text'):
                             selected = entry['exported_fields']
                             counts['exported_fields'] += len(selected)
@@ -3144,13 +3169,13 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                             sql_file.write("\n".join(statements) + "\n")
                         else:
                             counts["skipped"] += 1
-                        if kind in ('quest','npc_text','creature_text','page_text','skyfire_string','db_script_string','points_of_interest') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
+                        if kind in ('quest','npc_text','creature_text','page_text','skyfire_string','db_script_string','points_of_interest','achievement_reward') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
                             if not first_entry:
                                 report.write(",\n")
                             first_entry = False
                             report.write(json.dumps(entry, ensure_ascii=False, sort_keys=True, indent=2))
                 print(f"{kind}: target {counts['total_target_entities']}, candidates {counts['candidates_found']}, exported {counts['exported']}, conflicts {counts['CONFLICT']}, skipped {counts['skipped']}", flush=True)
-            totals = {key: sum(counts[key] for counts in summary.values()) for key in next(iter(summary.values()), {})}
+            totals = {key: sum(counts.get(key,0) for counts in summary.values()) for key in sorted({key for counts in summary.values() for key in counts})}
             report.write('\n  ],\n  "summary": ' + json.dumps(summary, ensure_ascii=False, sort_keys=True, indent=2))
             report.write(',\n  "totals": ' + json.dumps(totals, ensure_ascii=False, sort_keys=True, indent=2) + "\n}\n")
     publishing.create_bundle(directory, locale, summary)

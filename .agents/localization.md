@@ -9,7 +9,7 @@ configuration are documented in tools/localization/README.md.
 Use target SQL and actual target C++ loaders as the authority. External inputs
 are read-only; discover arbitrary reference IDs and independent repo/db inputs.
 Never guess schemas, numeric locales or entity identity from another core.
-Scope is item, gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text, skyfire_string, db_script_string and points_of_interest. Do not add types
+Scope is item, gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text, skyfire_string, db_script_string, achievement_reward and points_of_interest. Do not add types
 or weaken matching policy without explicit authorization.
 
 1. Inventory ACTIVE SQL, including full/base dumps and SQL inside ZIP archives.
@@ -31,7 +31,7 @@ fields with strict target identity and field-specific English proof; it cannot
 resolve PRIMARY conflicts/unsupported data or veto existing PRIMARY exports.
 Keep role/config fingerprint and rejected observations in provenance. See the
 toolkit README for canonical role configuration and fallback exclusion rules.
-CONFLICT/UNSUPPORTED block the affected fields for quests/npc_text and the entity/locale
+CONFLICT/UNSUPPORTED block the affected fields for quests/npc_text/achievement_reward and the entity/locale
 for other types; preserve existing field-level quest behavior and NPC option/variant proof. Missing targets, uncertain
 identity and differing nonempty target translations must remain excluded.
 Preserve existing SAFE_SINGLE_IDENTITY and VERIFIED_ALIAS opt-in requirements,

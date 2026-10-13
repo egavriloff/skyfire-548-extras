@@ -1,7 +1,7 @@
 # Offline localization toolkit
 
 Standard-library Python tooling for ProjectSkyFire 5.4.8 World DB. Supports item,
-gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text, skyfire_string, db_script_string and points_of_interest. No live DB connection is made.
+gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text, skyfire_string, db_script_string, achievement_reward and points_of_interest. No live DB connection is made.
 Repository locations are defined in [repository guidance](../../.agents/repository.md).
 
 ## Developer workflow
@@ -592,3 +592,39 @@ The next explicitly requested index rebuild will include this entity. Reports
 track `db_script_string_fields`, PRIMARY/SUPPLEMENTAL field values, formatting
 failures, confirmed English fallback and existing target protection. Existing
 coverage/report commands display the new summary automatically.
+
+
+### Achievement reward mail
+
+`achievement_reward` targets `locales_achievement_reward` (`entry`,
+`subject_locN`, `text_locN`). SkyFire loads faction titles, item, signed spell,
+sender, subject and body; it creates one attached item and uses direct mail text.
+Every donor must prove the same entry, titles, item, spell and sender. Missing
+structural fields, unknown reward features, non-default mail templates/counts,
+and unproven split spell semantics are unsupported; directory names do not
+establish compatibility. No inline locale schema was found in the active corpus.
+
+After full reward structure is proven, subject and body are checked independently
+against their own English fields using existing harmless identity normalization.
+Each translation must preserve the existing printf/WoW contract. Reward mail also
+recognizes the observed `$b` token, preserving its exact case: `$b` and `$B` are
+not equivalent. No source text or generated SQL is rewritten.
+
+PRIMARY conflicts and unsupported fields remain blocked. SUPPLEMENTAL fills only
+MISSING fields with its own structural and English proof; it cannot bypass a
+PRIMARY structural block. Confirmed same-field English fallback is excluded with
+provenance. Existing target fields are protected independently. A row exporting
+only one field is PARTIAL, and conflicting fields are omitted from SQL.
+
+```sh
+python tools/localization/localize.py inspect achievement_reward 42 --locale ruRU
+python tools/localization/localize.py compare achievement_reward 42 --locale ruRU
+python tools/localization/localize.py export achievement_reward 42 --locale ruRU
+python tools/localization/localize.py export-all achievement_reward --locale ruRU
+```
+
+An explicitly requested index rebuild is required before using the entity against
+an older index. Reports preserve per-field raw evidence, config fingerprints,
+structural/English proof, formatting failures, fallback exclusions and independent
+subject/body counters. `coverage` and `report` read these existing summaries.
+Validation fixtures and isolated analysis do not rebuild production artifacts.
