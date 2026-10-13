@@ -1,7 +1,7 @@
 # Offline localization toolkit
 
 Standard-library Python tooling for ProjectSkyFire 5.4.8 World DB. Supports item,
-gameobject, gossip_menu_option, creature, quest, npc_text, creature_text and page_text. No live DB connection is made.
+gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text and skyfire_string. No live DB connection is made.
 Repository locations are defined in [repository guidance](../../.agents/repository.md).
 
 ## Developer workflow
@@ -458,3 +458,47 @@ python tools/localization/localize.py export page_text 15 --locale ruRU
 
 Older indexes without page chain proof cannot export pages; reindex only when
 explicitly requested. Locale SQL does not modify base text or `next_page`.
+
+## SkyFire strings
+
+`skyfire_string` targets the inline `skyfire_string(entry, content_default,
+content_loc1 ... content_loc11)` schema. The structurally compatible
+`trinity_string` table is a reference adapter; directory names have no meaning.
+No row-based string locale schema was found, so none is assumed. Base and locale
+rows are indexed independently in both passes; a key catalog also supports updates
+to initially empty locale slots. Runtime entries must be in `[1, 2000000000)`,
+as defined by ObjectMgr. English identity must exist and match using existing
+harmless whitespace handling, with strict placeholder case and format compatibility.
+
+The runtime uses `vsnprintf`: the validator preserves argument count and order.
+It recognizes scalar `%s`, `%d`, `%i`, `%u`, `%f`, `%x`, `%X`, `%c`, octal `%o`,
+integer `l`/`ll` modifiers, observed integer `z`, and numeric flags/width/precision.
+Flags, fixed width and fixed precision do not consume arguments. Conversion and
+length sequences remain strict. `%%` consumes no argument. Positional `$` arguments,
+dynamic `*` width/precision, `%n`, and unobserved conversions are blocked; they are
+not inferred from donor data. Swapping arguments of identical types cannot be
+detected from a type contract and still requires translation review.
+
+Observed client tokens are checked separately: `$n`, `$N`, `$a`, `$B`, numeric
+tokens with optional `W`, and well-formed `$gfirst:second;` branches. Their case,
+order and count are preserved. A donor-only gender token is an extra token and
+remains blocked; no automatic token rewriting is performed. Unknown or malformed
+tokens fail closed. Raw strings are retained, including spacing and placeholders.
+
+PRIMARY consensus is unchanged; a PRIMARY format failure blocks the string.
+SUPPLEMENTAL can fill only MISSING fields with English/identity/format proof and
+cannot veto PRIMARY exports. A format failure in supplemental evidence for a
+MISSING string field blocks that supplemental fill. Confirmed English fallback
+is not exported and nonempty target fields are preserved.
+
+Reports include `skyfire_string_fields`, `primary_fields`, `supplemental_fields`,
+`existing_target_protected`, `confirmed_english_fallback`, and `placeholder_failures`.
+The last two count donor observations; entity statuses retain their existing units.
+Format diagnostics retain original values, contracts, reasons, source/table/file,
+evidence role and configuration fingerprint.
+
+```sh
+python tools/localization/localize.py inspect skyfire_string 3 --locale ruRU
+python tools/localization/localize.py compare skyfire_string 3 --locale ruRU
+python tools/localization/localize.py export skyfire_string 3 --locale ruRU
+```

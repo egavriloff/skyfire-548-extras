@@ -25,6 +25,7 @@ import evidence_roles
 import npc_text
 import creature_text
 import page_text
+import skyfire_string
 import source_setup
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
@@ -93,6 +94,11 @@ SPECS['page_text'] = {'source_table':'page_text_locale', 'target_table':'locales
     'source_locale':'locale', 'text_fields':{'text':'text'}, 'source_target_fields':{'text':'text'},
     'wide_fields':{'text':'Text_loc{n}'}}
 
+SPECS['skyfire_string'] = {'source_table':'trinity_string', 'target_table':'skyfire_string',
+    'target_entity':'skyfire_string', 'entity_fields':('entry',), 'source_id':'entry', 'target_id':'entry',
+    'source_locale':'locale', 'text_fields':{'content':'content'}, 'source_target_fields':{'content':'content'},
+    'wide_fields':{'content':'content_loc{n}'}}
+
 # Internal quest parts; these are not separate CLI entity types.
 QUEST_PARTS = {
     'quest_offer_reward': ('quest_offer_reward_locale', 'offerrewardtext', 'rewardtext'),
@@ -113,6 +119,8 @@ REFERENCE_LOCALE_TABLES['locales_gossip_menu_option'] = 'gossip_menu_option'
 
 
 def locale_table_kind(table: str) -> str | None:
+    if table in skyfire_string.TABLES:
+        return 'skyfire_string'
     if table in REFERENCE_LOCALE_TABLES:
         return REFERENCE_LOCALE_TABLES[table]
     if table == 'creature_template_wdb_locale':
@@ -588,6 +596,7 @@ def db_connect(path: Path = INDEX) -> sqlite3.Connection:
     conn.execute("CREATE TABLE IF NOT EXISTS gossip_aux(source TEXT,entity TEXT,table_name TEXT,fields TEXT,file TEXT,PRIMARY KEY(source,entity,table_name))")
     conn.execute('CREATE TABLE IF NOT EXISTS sources(source TEXT PRIMARY KEY,role TEXT NOT NULL,alias_role TEXT)')
     evidence_roles.create_schema(conn)
+    skyfire_string.create_schema(conn)
     conn.execute('CREATE TABLE IF NOT EXISTS record_origins(source TEXT,kind TEXT,entity TEXT,locale TEXT,table_name TEXT,PRIMARY KEY(source,kind,entity,locale))')
     conn.execute('CREATE TABLE IF NOT EXISTS invalid_values(source TEXT,kind TEXT,entity TEXT,locale TEXT,field TEXT,value TEXT,file TEXT,table_name TEXT,reason TEXT,rank INTEGER,PRIMARY KEY(source,kind,entity,locale,field))')
     conn.execute('CREATE INDEX IF NOT EXISTS invalid_values_entity_idx ON invalid_values(kind,entity,locale)')
@@ -833,6 +842,8 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
 
 def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
     row = canonical_row(kind, row)
+    if kind == 'skyfire_string':
+        return {'content':row['content_default']} if 'content_default' in row else {}
     if kind == 'page_text':
         return {k:row[k] for k in ('text', 'next_page', '_evidence_incomplete') if k in row}
     if kind == 'creature_text':
@@ -864,6 +875,8 @@ def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
 
 
 def valid_entity_key(kind, key):
+    if kind == 'skyfire_string':
+        return type(key) is int and 1 <= key < 2000000000
     if kind == 'page_text':
         return type(key) is int and key > 0
     if kind == 'npc_text' and key == 0:
@@ -902,6 +915,8 @@ def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[s
         schema_warning(conn, source, file, table_name or spec['target_entity'], kind, 'missing base identity fields; row rejected', ident, row)
         return
     required = {'creature': {'name', 'type', 'unit_class'}, 'quest': {'title', 'objectives', 'details', 'minlevel'}, 'creature_text': {'text', *creature_text.STRUCT}, 'page_text': {'text', 'next_page'}}.get(kind, set())
+    if kind == 'skyfire_string':
+        fields['_english_provenance'] = {'content':{'file':file,'table':table_name or 'skyfire_string','field':'content_default'}}
     missing = sorted(required - set(fields))
     if missing:
         fields['_evidence_incomplete'] = 1
@@ -1049,6 +1064,8 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
         entity_tables.update(("creature_template_wdb", "quest_objectives"))
     if source == 'target':
         entity_tables.discard('broadcast_text')
+    locale_tables.update(skyfire_string.TABLES)
+    entity_tables.update(skyfire_string.TABLES)
     relevant = locale_tables if phase == "locales" else entity_tables
     if table not in relevant:
         t.skip_raw_statement()
@@ -1097,7 +1114,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
         skip_statement(t)
         return
     reference_plan = None
-    if source != 'target' and table in REFERENCE_LOCALE_TABLES:
+    if source != 'target' and table in REFERENCE_LOCALE_TABLES and table not in skyfire_string.TABLES:
         try:
             reference_plan = reference_locale_plan(table, cols)
         except ValueError as exc:
@@ -1107,7 +1124,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     while True:
         x = t.get()
         if x[0] == "(":
-            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'creature_text', 'page_text', 'broadcast_text', *QUEST_PARTS):
+            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'creature_text', 'page_text', 'skyfire_string', 'trinity_string', 'broadcast_text', *QUEST_PARTS):
                 first_index = next((cols.index(c) for c in ("entry", "menuid", "menu_id", "id") if c in cols), -1)
                 if table in ('gossip_menu_option', 'gossip_menu_option_box', 'gossip_menu_option_action') and (len(cols) < 2 or cols[0] not in ('menuid', 'menu_id') or cols[1] not in ('optionid', 'optionindex', 'id')):
                     first_index = -1  # Sparse composite reads require proven column order.
@@ -1169,6 +1186,11 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                 vals = literal_tuple(t)
             if len(cols) == len(vals):
                 row = {c: v for c, v in zip(cols, vals)}
+                if table in skyfire_string.TABLES:
+                    skyfire_string.persist_row(sys.modules[__name__],conn,source,table,row,file,rank,phase)
+                    sep = t.get()
+                    if sep[0] == ',':continue
+                    return
                 spec_kind = locale_table_kind(table)
                 if spec_kind == 'creature_text' and not valid_entity_key(spec_kind,creature_text.key(row)):
                     schema_warning(conn,source,file,table,spec_kind,'incomplete or invalid composite key; row rejected',creature_text.key(row),row)
@@ -1641,6 +1663,14 @@ def parse_delete(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         t.skip_raw_statement()
         return
     tokens = statement_tokens(t)
+    if table in skyfire_string.TABLES:
+        storage = 'entities' if phase == 'entities' else 'records'
+        if not tokens or tokens[0][1].upper() != 'WHERE':raise ValueError('inline string DELETE requires WHERE')
+        condition,params = predicate_sql(tokens[1:],'skyfire_string',storage,t.variables)
+        conn.execute(f'DELETE FROM {storage} WHERE source=? AND kind=? AND '+condition,[source,'skyfire_string',*params])
+        if phase != 'entities':
+            conn.execute('DELETE FROM inline_string_keys WHERE source=? AND '+condition,[source,*params])
+        return
     if table in ("gossip_menu_option_box", "gossip_menu_option_action"):
         if phase and phase != "entities":
             return
@@ -1938,6 +1968,10 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
     if table not in TARGET_TABLES:
         t.skip_raw_statement()
         return
+    if table in skyfire_string.TABLES:
+        t.inline_string_table = table
+        skyfire_string.update(sys.modules[__name__],t,source,file,conn,phase)
+        return
     tokens = statement_tokens(t)  # Consume exactly once, including ignored metadata updates.
     info = table_info(table, source)
     if not info:
@@ -2179,6 +2213,8 @@ def quest_identity_text(value, *, field: str | None = None):
 
 
 def identities_match(kind: str, source: dict, target: dict) -> bool:
+    if kind == 'skyfire_string':
+        return skyfire_string.match(sys.modules[__name__],source,target)
     if kind == 'page_text':
         return page_text.match(sys.modules[__name__], source, target)
     if kind == 'creature_text':
@@ -2286,12 +2322,23 @@ def _primary_compare_value(conn: sqlite3.Connection, kind: str, entity: str, loc
     for source in reference_sources(conn):
         item = get_record(conn, source, kind, entity, locale)
         if item and item[0].get(field) not in (None, ""):
+            if kind == 'skyfire_string':
+                base = base_entity(conn,source,kind,entity)
+                target_base = base_entity(conn,'target',kind,entity)
+                if not skyfire_string.match(sys.modules[__name__],base,target_base):
+                    return 'UNSUPPORTED', {'reason':source+' string English identity unproven','source_english':base,'target_english':target_base}
+                proof = skyfire_string.validate(target_base['content'],item[0][field])
+                if not proof['valid']:
+                    return 'UNSUPPORTED', {'reason':'FORMAT_CONTRACT_FAILURE','format_contract_failures':[{
+                        'source':source,'value':item[0][field],'format_contract':proof,
+                        'provenance':{**item[0].get('_provenance',{}).get(field,{'file':item[1],'table':item[2]}),
+                                      **evidence_roles.profile(conn).get(source,{})}}]}
             if kind == 'page_text' and not page_text.match(sys.modules[__name__],
                     base_entity(conn, source, kind, entity), base_entity(conn, 'target', kind, entity)):
                 return 'UNSUPPORTED', {'reason': source + ' page_text chain identity unproven',
                                        'source_page': base_entity(conn, source, kind, entity),
                                        'target_page': base_entity(conn, 'target', kind, entity)}
-            if kind in ('creature_text', 'page_text'):
+            if kind in ('creature_text', 'page_text', 'skyfire_string'):
                 if field in item[0].get('_adapter_conflicts',{}):
                     return 'CONFLICT', {'reason':'direct/broadcast translation conflict','adapter_conflict':item[0]['_adapter_conflicts'][field]}
                 english = english_field_evidence(conn,'target',kind,entity,field)
@@ -2870,7 +2917,7 @@ def _primary_bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, loc
              "status": status, "reason": reason, "candidates_found": bool(candidates),
              "exported": bool(sql), "identity_failed": bool(candidates and not identity and not proof and not alias),
              "values": values, "provenance": provenance, "fields": comparisons}
-    if kind in ('quest','npc_text','creature_text','page_text'):
+    if kind in ('quest','npc_text','creature_text','page_text','skyfire_string'):
         for field, detail in comparisons.items():
             detail['exported'] = bool(sql) and detail['status'] in ('MATCH', 'SOURCE_ONLY')
         entry['exported_fields'] = sorted(field for field, detail in comparisons.items() if detail['exported'])
@@ -2966,8 +3013,11 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                 counts = {name: 0 for name in ("total_target_entities", "candidates_found", "exported", "MATCH", "SOURCE_ONLY", "SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS", "TARGET_IDENTICAL", "CONFLICT", "MISSING", "UNSUPPORTED", "identity_failed", "unsupported", "skipped", "PARTIAL", "exported_fields", "quest_row_fields", "objective_fields", "conflict_fields")}
                 if kind in ('npc_text','creature_text'):
                     counts.update(npc_text_fields=0, creature_text_fields=0, primary_fields=0, supplemental_fields=0, direct_evidence=0, broadcast_backed_evidence=0, unsupported_fields=0)
-                if kind == 'page_text':
+                if kind in ('page_text','skyfire_string'):
                     counts.update(page_text_fields=0, primary_fields=0, supplemental_fields=0, unsupported_fields=0)
+                if kind == 'skyfire_string':
+                    counts.update(skyfire_string_fields=0, existing_target_protected=0,
+                                  confirmed_english_fallback=0, placeholder_failures=0)
                 summary[kind] = counts
                 order = "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),json_extract(entity,'$[2]'),entity" if kind == "creature_text" else "json_extract(entity,'$[0]'),json_extract(entity,'$[1]'),entity" if kind == "gossip_menu_option" else "json_extract(entity,'$'),entity"
                 rows = conn.execute("SELECT entity FROM entities WHERE source='target' AND kind=? ORDER BY " + order, (kind,))
@@ -2994,15 +3044,21 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                                 counts['unsupported_fields'] += sum(d['status'] == 'UNSUPPORTED' for d in entry['fields'].values())
                             counts['objective_fields'] += sum(field.startswith('objective:') for field in selected)
                             counts['conflict_fields'] += sum(detail['status'] == 'CONFLICT' for detail in entry['fields'].values())
-                        if kind == 'page_text':
+                        if kind in ('page_text','skyfire_string'):
                             selected = entry['exported_fields']
                             counts['exported_fields'] += len(selected)
-                            counts['page_text_fields'] += len(selected)
+                            counts['skyfire_string_fields' if kind == 'skyfire_string' else 'page_text_fields'] += len(selected)
                             counts['conflict_fields'] += sum(d['status'] == 'CONFLICT' for d in entry['fields'].values())
                             counts['unsupported_fields'] += sum(d['status'] == 'UNSUPPORTED' for d in entry['fields'].values())
                             for field in selected:
                                 detail = entry['fields'][field]
                                 counts['supplemental_fields' if detail.get('decision_origin') == 'supplemental' else 'primary_fields'] += 1
+                        if kind == 'skyfire_string':
+                            counts['existing_target_protected'] += int(bool((target_locale_record(conn,kind,entity,locale) or {}).get('content')))
+                            counts['confirmed_english_fallback'] += len(entry.get('rejected_english_fallbacks',[])) + sum(
+                                r.get('reason') == 'CONFIRMED_ENGLISH_FALLBACK' for r in entry.get('supplemental_observations',[]))
+                            counts['placeholder_failures'] += sum(len(d.get('format_contract_failures',[])) for d in entry['fields'].values()) + sum(
+                                r.get('reason') == 'FORMAT_CONTRACT_FAILURE' for r in entry.get('supplemental_observations',[]))
                         counts["identity_failed"] += int(entry["identity_failed"])
                         counts["unsupported"] += int(entry["status"] == "UNSUPPORTED")
                         if statements:
@@ -3010,7 +3066,7 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                             sql_file.write("\n".join(statements) + "\n")
                         else:
                             counts["skipped"] += 1
-                        if kind in ('quest','npc_text','creature_text','page_text') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
+                        if kind in ('quest','npc_text','creature_text','page_text','skyfire_string') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
                             if not first_entry:
                                 report.write(",\n")
                             first_entry = False

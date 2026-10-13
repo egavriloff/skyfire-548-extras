@@ -68,7 +68,7 @@ def field_english_proof(api, conn, source, kind, entity, field):
         if not api.npc_text.field_match(api, api.base_entity(conn,source,kind,entity), api.base_entity(conn,'target',kind,entity),field):
             return False, origin, target
         a, b = api.quest_identity_text(a), api.quest_identity_text(b)
-    if kind in ('creature_text', 'page_text'):
+    if kind in ('creature_text', 'page_text', 'skyfire_string'):
         a, b = api.quest_identity_text(a), api.quest_identity_text(b)
     if kind == 'quest':
         a, b = api.quest_identity_text(a, field=field), api.quest_identity_text(b, field=field)
@@ -133,6 +133,9 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
                            'provenance': {**provenance, **metadata[source]}, 'identity_verified': identity,
                            'objective_identity_verified': objective_ok, 'field_english_verified': field_ok,
                            'source_english': english, 'target_english': target_english, 'primary_status': primary_status}
+            format_proof = (api.skyfire_string.validate(target_english['value'],value)
+                            if kind == 'skyfire_string' and target_english and isinstance(value,str) else None)
+            if format_proof is not None:observation['format_contract'] = format_proof
             if original['status'] in ('CONFLICT', 'UNSUPPORTED', 'SAFE_SINGLE_IDENTITY', 'VERIFIED_ALIAS'):
                 reason = 'PRIMARY_ENTITY_BLOCKED:' + original['status']
             elif primary_status != 'MISSING':
@@ -151,6 +154,8 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
                 reason = 'NON_TEXT_LOCALE_VALUE'
             elif not identity:
                 reason = 'SUPPLEMENTAL_IDENTITY_UNPROVEN'
+            elif format_proof is not None and not format_proof['valid']:
+                reason = 'FORMAT_CONTRACT_FAILURE'
             elif not objective_ok:
                 reason = 'OBJECTIVE_IDENTITY_UNPROVEN'
             elif not field_ok:
@@ -168,6 +173,10 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
                 observation['agrees_with_primary'] = all(api.translation_comparison_text(value, locale) == api.translation_comparison_text(v, locale)
                                                          for v in compared_primary if isinstance(v, str))
             field_observations.append(observation)
+        if kind == 'skyfire_string' and any(r['reason'] == 'FORMAT_CONTRACT_FAILURE' for r in field_observations):
+            bundle_blocked = True
+            for row in eligible:row['reason'] = 'SUPPLEMENTAL_FORMAT_FIELD_BLOCKED'
+            eligible = []
         if eligible:
             if len({api.translation_comparison_text(r['value'], locale) for r in eligible}) > 1:
                 for row in eligible:
@@ -185,7 +194,7 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
                                    'upstream': {r['source']: r['value'] for r in eligible},
                                    'provenance': {r['source']: r['provenance'] for r in eligible},
                                    'target': target_record.get(field), 'field_english_proof': {r['source']: {'source': r['source_english'], 'target': r['target_english']} for r in eligible}}
-        elif any(r['reason'] in ('INVALID_LOCALE_VALUE', 'NON_TEXT_LOCALE_VALUE') for r in field_observations):
+        elif any(r['reason'] in ('INVALID_LOCALE_VALUE', 'NON_TEXT_LOCALE_VALUE', 'FORMAT_CONTRACT_FAILURE') for r in field_observations):
             bundle_blocked = True
         observations.extend(field_observations)
     if bundle_blocked and kind not in ('quest','npc_text'):
@@ -213,7 +222,7 @@ def decide(api, conn, kind, entity, locale, *, allow_single_identity=False, allo
             entry['status'] = 'CONFLICT' if any(r['reason'] == 'SUPPLEMENTAL_TRANSLATION_CONFLICT' for r in observations) else 'UNSUPPORTED'
             entry['reason'] = 'Supplemental evidence blocked; PRIMARY decision remains unchanged'
     entry['supplemental_exported_fields'] = sorted(selected)
-    if kind in ('quest','npc_text','creature_text','page_text'):
+    if kind in ('quest','npc_text','creature_text','page_text','skyfire_string'):
         entry['exported_fields'] = sorted(set(original['exported_fields']) | set(selected))
         for field in selected:
             entry['fields'][field]['exported'] = True
