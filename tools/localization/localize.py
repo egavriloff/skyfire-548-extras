@@ -25,6 +25,7 @@ import evidence_roles
 import npc_text
 import creature_text
 import page_text
+import points_of_interest
 import skyfire_string
 import source_setup
 WORKSPACE = ROOT / ".tmp" / "localization"
@@ -94,6 +95,11 @@ SPECS['page_text'] = {'source_table':'page_text_locale', 'target_table':'locales
     'source_locale':'locale', 'text_fields':{'text':'text'}, 'source_target_fields':{'text':'text'},
     'wide_fields':{'text':'Text_loc{n}'}}
 
+SPECS['points_of_interest'] = {'source_table':'points_of_interest_locale', 'target_table':'locales_points_of_interest',
+    'target_entity':'points_of_interest', 'entity_fields':('entry',), 'source_id':'entry', 'target_id':'entry',
+    'source_locale':'locale', 'text_fields':{'icon_name':'icon_name'}, 'source_target_fields':{'icon_name':'icon_name'},
+    'wide_fields':{'icon_name':'icon_name_loc{n}'}}
+
 SPECS['skyfire_string'] = {'source_table':'trinity_string', 'target_table':'skyfire_string',
     'target_entity':'skyfire_string', 'entity_fields':('entry',), 'source_id':'entry', 'target_id':'entry',
     'source_locale':'locale', 'text_fields':{'content':'content'}, 'source_target_fields':{'content':'content'},
@@ -132,6 +138,8 @@ def locale_table_kind(table: str) -> str | None:
 
 def canonical_row(kind: str, row: dict) -> dict:
     row = dict(row)
+    if kind == 'points_of_interest':
+        row = points_of_interest.canonical(row)
     if kind == 'page_text':
         row = page_text.canonical(row)
     if kind == 'creature_text':
@@ -597,6 +605,7 @@ def db_connect(path: Path = INDEX) -> sqlite3.Connection:
     conn.execute('CREATE TABLE IF NOT EXISTS sources(source TEXT PRIMARY KEY,role TEXT NOT NULL,alias_role TEXT)')
     evidence_roles.create_schema(conn)
     skyfire_string.create_schema(conn)
+    points_of_interest.create_schema(conn)
     conn.execute('CREATE TABLE IF NOT EXISTS record_origins(source TEXT,kind TEXT,entity TEXT,locale TEXT,table_name TEXT,PRIMARY KEY(source,kind,entity,locale))')
     conn.execute('CREATE TABLE IF NOT EXISTS invalid_values(source TEXT,kind TEXT,entity TEXT,locale TEXT,field TEXT,value TEXT,file TEXT,table_name TEXT,reason TEXT,rank INTEGER,PRIMARY KEY(source,kind,entity,locale,field))')
     conn.execute('CREATE INDEX IF NOT EXISTS invalid_values_entity_idx ON invalid_values(kind,entity,locale)')
@@ -842,6 +851,8 @@ def normalized_row(source: str, table: str, cols: list[str], vals: list[object])
 
 def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
     row = canonical_row(kind, row)
+    if kind == 'points_of_interest':
+        return {k:row[k] for k in (*points_of_interest.BASE_FIELDS, '_evidence_incomplete') if k in row}
     if kind == 'skyfire_string':
         return {'content':row['content_default']} if 'content_default' in row else {}
     if kind == 'page_text':
@@ -877,6 +888,8 @@ def identity_fields(kind: str, row: dict[str, object]) -> dict[str, object]:
 def valid_entity_key(kind, key):
     if kind == 'skyfire_string':
         return type(key) is int and 1 <= key < 2000000000
+    if kind == 'points_of_interest':
+        return type(key) is int and key > 0
     if kind == 'page_text':
         return type(key) is int and key > 0
     if kind == 'npc_text' and key == 0:
@@ -898,6 +911,8 @@ def schema_warning(conn, source, file, table, kind, reason, key=None, row=None, 
 
 
 def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[str, object], file: str, rank: int, table_name: str | None = None) -> None:
+    if kind == 'points_of_interest':
+        row = points_of_interest.canonical(row)
     if kind == 'page_text':
         row = page_text.canonical(row)
     spec = ALL_SPECS[kind]
@@ -914,7 +929,7 @@ def persist_entity(conn: sqlite3.Connection, source: str, kind: str, row: dict[s
     if not fields:
         schema_warning(conn, source, file, table_name or spec['target_entity'], kind, 'missing base identity fields; row rejected', ident, row)
         return
-    required = {'creature': {'name', 'type', 'unit_class'}, 'quest': {'title', 'objectives', 'details', 'minlevel'}, 'creature_text': {'text', *creature_text.STRUCT}, 'page_text': {'text', 'next_page'}}.get(kind, set())
+    required = {'creature': {'name', 'type', 'unit_class'}, 'quest': {'title', 'objectives', 'details', 'minlevel'}, 'creature_text': {'text', *creature_text.STRUCT}, 'page_text': {'text', 'next_page'}, 'points_of_interest': set(points_of_interest.BASE_FIELDS)}.get(kind, set())
     if kind == 'skyfire_string':
         fields['_english_provenance'] = {'content':{'file':file,'table':table_name or 'skyfire_string','field':'content_default'}}
     missing = sorted(required - set(fields))
@@ -945,6 +960,8 @@ def persist_locale(conn: sqlite3.Connection, source: str, kind: str, entity: str
         elif source != 'target' and locale == 'ruRU':
             conn.execute('DELETE FROM invalid_values WHERE source=? AND kind=? AND entity=? AND locale=? AND field=? AND rank<=?',
                          (source, kind, entity, locale, field, rank))
+    if kind == 'points_of_interest':
+        points_of_interest.persist_variant(conn,source,entity,locale,clean,file,rank,table_name or ALL_SPECS[kind]['source_table'])
     if not clean:
         conn.execute("DELETE FROM records WHERE source=? AND kind=? AND entity=? AND locale=? AND rank<=?",
                      (source, kind, entity, locale, rank))
@@ -981,6 +998,8 @@ def reference_locale_plan(table: str, cols: list[str]) -> tuple[str, tuple[str, 
     """Validate a supported schema and explicit locale slots before importing rows."""
     kind = REFERENCE_LOCALE_TABLES[table]
     keys = ('menu_id', 'id') if kind == 'gossip_menu_option' else tuple(next((col for col in cols if creature_text.ALIASES.get(col,col)==key),key) for key in creature_text.KEYS) if kind == 'creature_text' else (ALL_SPECS[kind]['target_id'],)
+    if kind == 'points_of_interest':
+        keys=(next((k for k in ('entry','id') if k in cols),'entry'),)
     if not cols or len(cols) != len(set(cols)) or not set(keys).issubset(cols):
         raise ValueError('missing/duplicate entity key columns')
     if kind == 'quest_objective':
@@ -989,6 +1008,8 @@ def reference_locale_plan(table: str, cols: list[str]) -> tuple[str, tuple[str, 
         return kind, keys, {'description': ('description', 'row')}
     patterns = ({'optiontext': 'option_text_loc{n}', 'boxtext': 'box_text_loc{n}'}
                 if kind == 'gossip_menu_option' else ALL_SPECS[kind]['wide_fields'])
+    if kind == 'points_of_interest' and any(c.startswith('name_loc') for c in cols):
+        patterns={**patterns,'icon_name':'name_loc{n}'}
     known = {pattern.format(n=n).lower(): (field, locale) for field, pattern in patterns.items()
              for locale, n in LOCALES.items() if n > 0}
     female = {prefix + '_female_loc' + str(n) for prefix in ('option_text', 'box_text') for n in range(1, 12)} if kind == 'gossip_menu_option' else {f'text_female_loc{n}' for n in range(1,12)} if kind == 'creature_text' else set()
@@ -1036,7 +1057,7 @@ def persist_reference_locale(conn, source, table, plan, row, file, rank):
         canonical = conn.execute('SELECT 1 FROM records r JOIN record_origins o USING(source,kind,entity,locale) '
                                  'WHERE r.source=? AND r.kind=? AND r.entity=? AND r.locale=? AND o.table_name=?',
                                  (source, kind, entity, locale, ALL_SPECS[kind]['source_table'])).fetchone()
-        if canonical:
+        if canonical and kind != 'points_of_interest':
             continue
         persist_locale(conn, source, kind, entity, locale, fields, file, rank, table)
 
@@ -1124,7 +1145,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     while True:
         x = t.get()
         if x[0] == "(":
-            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'creature_text', 'page_text', 'skyfire_string', 'trinity_string', 'broadcast_text', *QUEST_PARTS):
+            if phase == "entities" and cols and table not in ('creature_template', 'creature_template_wdb', 'quest_template', 'quest_objectives', 'npc_text', 'creature_text', 'page_text', 'skyfire_string', 'trinity_string', 'broadcast_text', 'points_of_interest', *points_of_interest.GOSSIP, *QUEST_PARTS):
                 first_index = next((cols.index(c) for c in ("entry", "menuid", "menu_id", "id") if c in cols), -1)
                 if table in ('gossip_menu_option', 'gossip_menu_option_box', 'gossip_menu_option_action') and (len(cols) < 2 or cols[0] not in ('menuid', 'menu_id') or cols[1] not in ('optionid', 'optionindex', 'id')):
                     first_index = -1  # Sparse composite reads require proven column order.
@@ -1186,6 +1207,8 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                 vals = literal_tuple(t)
             if len(cols) == len(vals):
                 row = {c: v for c, v in zip(cols, vals)}
+                if phase == 'entities' and table in points_of_interest.GOSSIP:
+                    points_of_interest.persist_relationship(sys.modules[__name__],conn,source,table,row,file,rank)
                 if table in skyfire_string.TABLES:
                     skyfire_string.persist_row(sys.modules[__name__],conn,source,table,row,file,rank,phase)
                     sep = t.get()
@@ -1219,7 +1242,8 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         if normalized:
                             kind, entity, locale, fields = normalized
                             persist_locale(conn, source, kind, entity, locale, fields, file, rank, table_name=table)
-                if table in ("gossip_menu_option_box", "gossip_menu_option_action"):
+                gossip_sparse = len(cols)>=2 and cols[0] in ("menuid","menu_id") and cols[1] in ("optionid","optionindex","id")
+                if table in ("gossip_menu_option_box", "gossip_menu_option_action") and (not gossip_sparse or json.dumps((row.get("menuid"), row.get("optionindex", row.get("optionid")))) in candidates):
                     menu, option = row.get("menuid"), row.get("optionindex", row.get("optionid"))
                     if isinstance(menu, int) and isinstance(option, int):
                         if table == "gossip_menu_option_box":
@@ -1228,6 +1252,12 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         conn.execute("INSERT OR REPLACE INTO gossip_aux VALUES(?,?,?,?,?)",
                                      (source, json.dumps((menu, option)), table, json.dumps(identity_fields("gossip_menu_option", row), ensure_ascii=False), file))
                 # Base entity identity records.
+                if table in points_of_interest.GOSSIP:
+                    key = (row.get('menuid',row.get('menu_id')),row.get('optionid',row.get('optionindex',row.get('id'))))
+                    if gossip_sparse and json.dumps(key) not in candidates:
+                        sep=t.get()
+                        if sep[0]==',':continue
+                        return
                 base_map = {s['target_entity']: k for k, s in ALL_SPECS.items()}
                 if source != 'target':
                     base_map['quest_objectives'] = 'quest_objective'
@@ -1663,6 +1693,10 @@ def parse_delete(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         t.skip_raw_statement()
         return
     tokens = statement_tokens(t)
+    points_of_interest.replay_mutation(sys.modules[__name__],conn,source,file,table,tokens,t.variables,'DELETE',phase)
+    if table in ('points_of_interest_locale','locales_points_of_interest') and phase != 'entities':
+        points_of_interest.delete_locales(sys.modules[__name__],conn,source,table,tokens,t.variables)
+        return
     if table in skyfire_string.TABLES:
         storage = 'entities' if phase == 'entities' else 'records'
         if not tokens or tokens[0][1].upper() != 'WHERE':raise ValueError('inline string DELETE requires WHERE')
@@ -1729,7 +1763,7 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
     if kind == 'npc_text' and table == 'npc_text':
         column = re.sub(r'^probability', 'prob', column)
         return (column, 'entity') if column in (*npc_text.TEXT_FIELDS, *(f'{prefix}{i}' for prefix in ('prob','lang','broadcasttextid') for i in range(npc_text.OPTIONS))) else None
-    if kind in ('creature', 'quest', 'npc_text', 'creature_text', 'page_text', npc_text.BROADCAST_KIND, *QUEST_PARTS):
+    if kind in ('creature', 'quest', 'npc_text', 'creature_text', 'page_text', 'points_of_interest', npc_text.BROADCAST_KIND, *QUEST_PARTS):
         if table == spec['target_entity']:
             mapped = identity_fields(kind, {column: 0})
             return (next(iter(mapped)), 'entity') if mapped else None
@@ -1973,6 +2007,7 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         skyfire_string.update(sys.modules[__name__],t,source,file,conn,phase)
         return
     tokens = statement_tokens(t)  # Consume exactly once, including ignored metadata updates.
+    points_of_interest.replay_mutation(sys.modules[__name__],conn,source,file,table,tokens,t.variables,'UPDATE',phase)
     info = table_info(table, source)
     if not info:
         return
@@ -2017,7 +2052,7 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         raise
     except (ValueError, IndexError) as exc:
         parser_warning(conn, source, file, f"UPDATE {table}: {exc}")
-        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective", "npc_text", "creature_text", "page_text", npc_text.BROADCAST_KIND):
+        if storage == "entities" and kind in ("gameobject", "gossip_menu_option", "creature", "quest", "quest_objective", "npc_text", "creature_text", "page_text", "points_of_interest", npc_text.BROADCAST_KIND):
             condition, params = "1", []
             try:
                 marker = next(i for i, token in enumerate(tokens) if token[1].upper() == "WHERE")
@@ -2079,6 +2114,7 @@ def build_index(_: argparse.Namespace) -> int:
     npc_text.finalize(sys.modules[__name__],conn)
     creature_text.finalize(sys.modules[__name__],conn)
     page_text.finalize(sys.modules[__name__],conn)
+    points_of_interest.finalize(sys.modules[__name__],conn)
     conn.commit()
     print("Индекс построен:", INDEX)
     for source, count in counts.items():
@@ -2500,6 +2536,11 @@ def command_inspect(args: argparse.Namespace) -> int:
     key = entity_key(kind, args.entity_id)
     locales = [args.locale] if args.locale else list(LOCALES)
     with open_index() as conn:
+        if kind == 'points_of_interest':
+            for locale in locales:
+                entry,_ = points_of_interest.decide(sys.modules[__name__],conn,key,locale)
+                print(json.dumps(entry,ensure_ascii=False,sort_keys=True,indent=2))
+            return 0
         print(f"{kind} {args.entity_id}")
         print(json.dumps(evidence_roles.profile(conn), ensure_ascii=False, sort_keys=True))
         for source in ("target", *all_reference_sources(conn)):
@@ -2943,11 +2984,17 @@ def _primary_bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, loc
 
 
 def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str, *, allow_single_identity=False, allow_verified_aliases=False):
+    if kind == 'points_of_interest':
+        return points_of_interest.decide(sys.modules[__name__],conn,entity,locale)
     return evidence_roles.decide(sys.modules[__name__], conn, kind, entity, locale,
                                  allow_single_identity=allow_single_identity, allow_verified_aliases=allow_verified_aliases)
 
 
 def compare_value(conn, kind, entity, locale, field, **kwargs):
+    if kind == 'points_of_interest':
+        entry,_ = points_of_interest.decide(sys.modules[__name__],conn,entity,locale)
+        detail=entry['fields']['icon_name']
+        return detail['status'], {k:v for k,v in detail.items() if k!='status'}
     if kwargs:
         # Explicit proof scopes are internal PRIMARY policy calls.
         metadata = evidence_roles.validate(conn)
@@ -3015,6 +3062,8 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                     counts.update(npc_text_fields=0, creature_text_fields=0, primary_fields=0, supplemental_fields=0, direct_evidence=0, broadcast_backed_evidence=0, unsupported_fields=0)
                 if kind in ('page_text','skyfire_string'):
                     counts.update(page_text_fields=0, primary_fields=0, supplemental_fields=0, unsupported_fields=0)
+                if kind == 'points_of_interest':
+                    counts.update(AMBIGUOUS=0, exact_identity_matches=0, relationship_remapped_matches=0, primary_fields=0, supplemental_fields=0, existing_target_protected=0, confirmed_english_fallback=0, coordinate_mismatch=0, structural_mismatch=0, ambiguous_mapping=0, relationship_proof_failure=0)
                 if kind == 'skyfire_string':
                     counts.update(skyfire_string_fields=0, existing_target_protected=0,
                                   confirmed_english_fallback=0, placeholder_failures=0)
@@ -3059,14 +3108,23 @@ def bulk_export(conn: sqlite3.Connection, kinds: list[str], locale: str, directo
                                 r.get('reason') == 'CONFIRMED_ENGLISH_FALLBACK' for r in entry.get('supplemental_observations',[]))
                             counts['placeholder_failures'] += sum(len(d.get('format_contract_failures',[])) for d in entry['fields'].values()) + sum(
                                 r.get('reason') == 'FORMAT_CONTRACT_FAILURE' for r in entry.get('supplemental_observations',[]))
+                        if kind == 'points_of_interest':
+                            selected=entry['exported_fields']
+                            counts['exported_fields']+=len(selected)
+                            counts['supplemental_fields' if entry['fields']['icon_name']['decision_origin']=='supplemental' else 'primary_fields']+=len(selected)
+                            counts['exact_identity_matches']+=int('EXACT_IDENTITY' in entry['identity_modes'])
+                            counts['relationship_remapped_matches']+=int('STRONG_RELATIONSHIP_MATCH' in entry['identity_modes'])
+                            counts['existing_target_protected']+=int(entry['existing_target_protected'])
+                            for counter,reason in (('confirmed_english_fallback','CONFIRMED_ENGLISH_FALLBACK'),('coordinate_mismatch','COORDINATE_MISMATCH'),('structural_mismatch','STRUCTURAL_MISMATCH'),('ambiguous_mapping','AMBIGUOUS_MAPPING'),('relationship_proof_failure','RELATIONSHIP_PROOF_FAILURE')):
+                                counts[counter]+=int(any(o.get('reason')==reason for o in entry['observations']))
                         counts["identity_failed"] += int(entry["identity_failed"])
-                        counts["unsupported"] += int(entry["status"] == "UNSUPPORTED")
+                        counts["unsupported"] += int(entry["status"] == "UNSUPPORTED" or (kind == "points_of_interest" and entry["status"] == "AMBIGUOUS"))
                         if statements:
                             counts["exported"] += 1
                             sql_file.write("\n".join(statements) + "\n")
                         else:
                             counts["skipped"] += 1
-                        if kind in ('quest','npc_text','creature_text','page_text','skyfire_string') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
+                        if kind in ('quest','npc_text','creature_text','page_text','skyfire_string','points_of_interest') or entry.get('supplemental_observations') or not statements or entry.get('invalid_values') or entry.get('rejected_english_fallbacks') or entry["status"] in ("SAFE_SINGLE_IDENTITY", "VERIFIED_ALIAS"):
                             if not first_entry:
                                 report.write(",\n")
                             first_entry = False

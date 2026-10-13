@@ -1,7 +1,7 @@
 # Offline localization toolkit
 
 Standard-library Python tooling for ProjectSkyFire 5.4.8 World DB. Supports item,
-gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text and skyfire_string. No live DB connection is made.
+gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text, skyfire_string and points_of_interest. No live DB connection is made.
 Repository locations are defined in [repository guidance](../../.agents/repository.md).
 
 ## Developer workflow
@@ -502,3 +502,37 @@ python tools/localization/localize.py inspect skyfire_string 3 --locale ruRU
 python tools/localization/localize.py compare skyfire_string 3 --locale ruRU
 python tools/localization/localize.py export skyfire_string 3 --locale ruRU
 ```
+
+## Points of interest
+
+`points_of_interest` targets `locales_points_of_interest.icon_name_locN`.
+Base adapters recognize `entry/ID`, `x/PositionX`, `y/PositionY`,
+`data/Importance`, and `icon_name/Name`. Wide and row-based locale tables from
+one source are a single evidence vote; contradictory representations block it.
+
+Identity requires the target row, matching English name under the existing
+harmless whitespace comparison, exact icon/flags/data, and independent X/Y
+agreement within a fixed 0.001 tolerance. No rounding, case or punctuation
+heuristics are used. Both directions of the full fingerprint mapping must be
+unique. Different IDs additionally require matching gossip option composite
+keys, English option text, type, icon, NPC flag and action menu. A separate
+complete gossip relationship catalog does not expand ordinary gossip candidates.
+
+PRIMARY conflicts and identity blocks remain blocking. SUPPLEMENTAL fills only
+PRIMARY MISSING values with the same proof. Confirmed English fallback is
+excluded; existing nonempty target values are preserved. SQL keeps the selected
+raw translation. Mechanical identity proof does not certify translation quality.
+
+```sh
+python tools/localization/localize.py inspect points_of_interest 557 --locale ruRU
+python tools/localization/localize.py compare points_of_interest 557 --locale ruRU
+python tools/localization/localize.py export points_of_interest 557 --locale ruRU
+python tools/localization/localize.py export-all points_of_interest --locale ruRU
+```
+
+A newly added entity requires an explicitly requested index rebuild before
+production use. Reports retain donor keys, role/config fingerprints, all locale
+representations, base evidence and relationship provenance. `AMBIGUOUS` blocks
+export. POI counters distinguish exact identity, relationship remapping, PRIMARY
+and SUPPLEMENTAL fields, coordinate/structural failures, relationship failures,
+English fallback and existing target protection.
