@@ -7,6 +7,8 @@ from pathlib import Path
 import re
 import tempfile
 
+import reporting
+
 
 def digest(path: Path) -> str:
     h = hashlib.sha256()
@@ -118,6 +120,32 @@ def validate_statement(line: str, kind: str, table: str, columns: list[str], loc
         raise ValueError('Reviewed SQL does not preserve empty-target-only updates')
 
 
+def coverage_readme(locale: str, target: str, summaries: dict) -> str:
+    """Describe only published entities using their approved review snapshots."""
+    data = reporting.coverage({'summary': summaries}, locale)
+    number = lambda value: f'{value:,}'
+    percentage = lambda value: '-' if value is None else f'{value:.2f}%'
+    lines = [f'# {locale} localization', '', f'Target: {target}.', '',
+             'Generated, reviewed localization SQL bundle. Coverage describes the published',
+             'entity selection; counters come from the approved reviews used for these SQL files.', '',
+             '| Entity | Target | Candidates | Exported | Target % | Evidence % |',
+             '| --- | ---: | ---: | ---: | ---: | ---: |']
+    for entity, row in [*data['entities'].items(), ('TOTAL', data['totals'])]:
+        lines.append('| ' + ' | '.join([entity, number(row['target']), number(row['candidates']),
+                     number(row['exported']), percentage(row['target_coverage']),
+                     percentage(row['evidence_coverage'])]) + ' |')
+    totals = data['totals']
+    lines += ['', 'Summary:', '']
+    for label, key in [('Exported','exported'), ('Skipped','skipped'), ('Conflicts','conflict'),
+                       ('Unsupported','unsupported'), ('Missing','missing')]:
+        lines.append(f'- {label}: {number(totals[key])}')
+    lines += ['', 'Developer diagnostics for the local review report:', '', '```sh',
+              f'python tools/localization/localize.py coverage --locale {locale} --verbose', '```', '',
+              'That command reads the local review workspace, which may be newer than this',
+              'publication. This README is a fixed summary of the published SQL bundle.', '']
+    return '\n'.join(lines)
+
+
 def publish(directory: Path, output: Path, locale: str, kinds: list[str] | None, specs: dict, locales: dict) -> dict:
     bundle_path, bundle = read_bundle(directory, locale)
     receipt_path = directory / f'approved-{locale}.json'
@@ -128,6 +156,10 @@ def publish(directory: Path, output: Path, locale: str, kinds: list[str] | None,
     if (not isinstance(receipt,dict) or receipt.get('version') != 1 or receipt.get('locale') != locale or receipt.get('reviewed') is not True
             or receipt.get('bundle_sha256') != digest(bundle_path) or receipt.get('acknowledged_skipped') != skipped):
         raise ValueError('Review approval is stale or skipped records have not been acknowledged')
+    # Load only the hash-bound input report, never the default/latest workspace report.
+    approved_report = reporting.load(directory / f'report-{locale}.json', locale)
+    if approved_report['summary'] != bundle['summary']:
+        raise ValueError('Approved report summary does not match review bundle')
     selected = sorted(set(kinds or [kind for kind, counts in bundle['summary'].items() if counts['exported']]))
     if not selected or any(kind not in specs or kind not in bundle['summary'] or not bundle['summary'][kind]['exported'] for kind in selected):
         raise ValueError('Selected entities have no reviewed exportable SQL')
@@ -189,11 +221,30 @@ def publish(directory: Path, output: Path, locale: str, kinds: list[str] | None,
                     stream.close()
             hashes = {filename:digest(staging / filename) for filename in tables.values()}
             manifest['entities'][kind] = {'files':hashes,'review_bundle_sha256':digest(bundle_path),
-                'review_report_sha256':bundle['files'][f'report-{locale}.json'], 'summary':bundle['summary'][kind],
+                'review_report_sha256':bundle['files'][f'report-{locale}.json'], 'summary':approved_report['summary'][kind],
                 'skipped_acknowledged':True,'exception_flags_preserved':True,
                 'provenance_comments':sorted(provenance_comments), 'sql_comments':'file_header_only',
                 'exception_flags_location':'manifest.provenance_comments'}
             files.update({filename:staging / filename for filename in tables.values()})
+        # Retained entities belong to earlier approved publications. Verify their
+        # SQL snapshots before including their saved approved counters in README.
+        for kind, value in manifest['entities'].items():
+            if not isinstance(value,dict) or not isinstance(value.get('summary'),dict) or not isinstance(value.get('files'),dict):
+                raise ValueError('Invalid published entity metadata: ' + kind)
+            counts=value['summary']
+            if (any(type(n) is not int or n<0 for n in counts.values())
+                    or counts.get('total_target_entities') != counts.get('exported',0)+counts.get('skipped',0)):
+                raise ValueError('Invalid published coverage counters: ' + kind)
+            for name, sha in value['files'].items():
+                path=files.get(name,output/name)
+                if (Path(name).name!=name or path.is_symlink() or not path.is_file() or digest(path)!=sha):
+                    raise ValueError('Published SQL does not match approved metadata: ' + name)
+        summaries = {kind: value['summary'] for kind, value in manifest['entities'].items()}
+        readme = staging / 'README.md'
+        readme.write_text(coverage_readme(locale, bundle['target'], summaries), encoding='utf-8', newline='\n')
+        files['README.md'] = readme
+        manifest['files'] = {name: sha for value in manifest['entities'].values() for name, sha in value['files'].items()}
+        manifest['files']['README.md'] = digest(readme)
         write_json(staging / 'manifest.json', manifest)
         files['manifest.json'] = staging / 'manifest.json'
         for name in files:

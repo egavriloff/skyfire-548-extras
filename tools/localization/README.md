@@ -679,3 +679,25 @@ characters, for example:
 Family is metadata only. It does not alter PRIMARY/SUPPLEMENTAL behavior, group
 votes or deduplicate donors. Old configs without family remain valid. The wizard
 preserves existing family metadata; the config fingerprint includes it.
+
+
+### Published coverage README
+
+`publish` generates `localizations/<locale>/README.md` with the target, locale,
+coverage for the published entity selection, summed totals and exclusion summary.
+Counts use thousands separators; percentages have two decimal places and use
+`-` for zero denominators. Entity order matches the canonical coverage order.
+
+The current report must be hash-bound to the approved review bundle and its
+summary must match that bundle. An unrelated newer report in the default review
+workspace is never read during publication. Incremental publishing retains the
+saved approved summaries of previously published entities and verifies their SQL
+hashes before describing them. Unselected exportable entities from a review do
+not appear as published coverage.
+
+README generation is staged with SQL and manifest validation. `manifest.json`
+includes the README SHA-256 in its top-level `files` map. Repeating publication
+with unchanged approved inputs produces identical README bytes. The README has
+no per-row provenance, source lists or detailed diagnostics. Its diagnostic CLI
+example reads the local review workspace, which may differ from the published
+snapshot; it does not regenerate the README.
