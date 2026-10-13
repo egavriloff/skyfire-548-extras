@@ -478,8 +478,9 @@ def source_definitions() -> dict[str, dict]:
                 continue
             config_file = directory / 'source.json'
             config = json.loads(config_file.read_text(encoding='utf-8')) if config_file.exists() else {}
-            if not isinstance(config, dict) or set(config) - {'alias_role', 'evidence_role', 'inputs', 'exclude'} or config.get('alias_role') not in (None, 'origin', 'corroborator'):
+            if not isinstance(config, dict) or set(config) - {'alias_role', 'evidence_role', 'evidence_family', 'inputs', 'exclude'} or config.get('alias_role') not in (None, 'origin', 'corroborator'):
                 raise RuntimeError(f'Invalid optional evidence role configuration: {config_file}')
+            source_setup.validate_family(config)
             if not isinstance(config.get('evidence_role'), str) or config['evidence_role'] not in evidence_roles.ROLES:
                 raise RuntimeError(f'{source}: source.json requires explicit evidence_role (primary, supplemental, code_schema): {config_file}')
             if config.get('alias_role') and config['evidence_role'] != 'primary':
@@ -3218,9 +3219,14 @@ def parser() -> argparse.ArgumentParser:
             q.add_argument('--verbose',action='store_true',help='Show all diagnostic and entity-specific counters')
             q.add_argument('--json',action='store_true',help='Print deterministic JSON to stdout only')
     sub.add_parser("index", help="Build the local streaming SQLite index")
+    q=sub.add_parser("sources",help="Read-only reference summary")
+    q.add_argument("--json",action="store_true",help="Print deterministic JSON")
     for command in ("source-scan","source-init","source-validate"):
         q=sub.add_parser(command,help="Inspect, configure or validate local reference inputs")
-        q.add_argument("source_path",help="Source directory containing repo/ and/or db/")
+        q.add_argument("source_path",nargs=None if command=="source-init" else "?",help="Source directory containing repo/ and/or db/")
+        if command!="source-init":
+            q.add_argument("--all",action="store_true",help="Process all reference directories")
+            q.add_argument("--json",action="store_true",help="Print deterministic JSON")
     for command in ('approve-review', 'publish'):
         q = sub.add_parser(command, help='Record review approval' if command == 'approve-review' else 'Publish hash-bound reviewed SQL, offline')
         q.add_argument('--locale', required=True, choices=tuple(code for code in LOCALES if code != 'enUS'))
@@ -3257,7 +3263,7 @@ def main() -> int:
     try:
         if args.command in ('coverage','report'):
             return reporting.command(sys.modules[__name__],args)
-        if args.command in ("source-scan","source-init","source-validate"):
+        if args.command in ("sources","source-scan","source-init","source-validate"):
             return source_setup.command(sys.modules[__name__],args)
         if args.command == "index":
             return build_index(args)

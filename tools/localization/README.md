@@ -628,3 +628,54 @@ an older index. Reports preserve per-field raw evidence, config fingerprints,
 structural/English proof, formatting failures, fallback exclusions and independent
 subject/body counters. `coverage` and `report` read these existing summaries.
 Validation fixtures and isolated analysis do not rebuild production artifacts.
+
+
+### Reference management summaries
+
+```sh
+python tools/localization/localize.py sources
+python tools/localization/localize.py sources --json
+python tools/localization/localize.py source-validate --all
+python tools/localization/localize.py source-validate --all --json
+python tools/localization/localize.py source-scan --all
+python tools/localization/localize.py source-scan --all --json
+```
+
+These commands are read-only: they neither index SQL nor change `source.json`.
+`sources` enumerates reference directories independently, reporting role, optional
+family, legacy/explicit selection, resolved stream count and OK/WARN/ERROR status.
+It does not read SQL payloads. Its **Locale datasets** column counts selected
+SQL/ZIP-member streams declared `world` or `hotfixes`; unknown legacy roles are
+not inferred from filenames. A code/schema-only source contributes zero indexing
+inputs. Missing or malformed configs remain visible as errors.
+
+`source-validate --all` continues after a broken source. It checks config schema,
+paths, exclusions, resolved inputs, overlaps/dataset-role conflicts, case-insensitive
+source ID collisions and duplicate canonical directories. Explicit empty data
+selections are errors; code/schema-only sources may have zero selected inputs.
+Explicitly selecting world/hotfixes/unknown data for a `code_schema` source is an
+error. Legacy `code_schema` configs remain valid and are excluded from indexing.
+WARN alone does not cause validation failure; any ERROR returns a nonzero code.
+The human output includes the complete resolved input list and dataset roles.
+
+`source-scan --all` inspects all available active SQL/ZIP-member streams, including
+unselected streams, using table/schema signatures. It reports repo/db presence,
+active/excluded stream counts, localization schemas and ruRU-capable schema
+counts. ruRU capability means a locale column or a locale-8 field, not confirmed
+translation coverage. INSERT payloads are skipped; rough row counts are `null`
+when they cannot be cheaply established. Excluded payloads are never scanned.
+
+`--json` prints deterministic JSON to stdout only, with stable source ordering,
+per-source diagnostics and totals. It creates no report/cache artifact. The
+existing path-based scan/init/validate commands keep their workflow.
+
+`source.json` may include a nonempty string `evidence_family` without control
+characters, for example:
+
+```json
+{"evidence_role":"primary","evidence_family":"reference-lineage-a"}
+```
+
+Family is metadata only. It does not alter PRIMARY/SUPPLEMENTAL behavior, group
+votes or deduplicate donors. Old configs without family remain valid. The wizard
+preserves existing family metadata; the config fingerprint includes it.

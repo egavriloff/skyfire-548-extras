@@ -10,6 +10,12 @@ import zipfile
 ROLES = ('primary','supplemental','code_schema')
 DATASETS = ('world','hotfixes','auth','characters','unknown')
 
+def validate_family(config):
+    if 'evidence_family' in config:
+        family=config['evidence_family']
+        if not isinstance(family,str) or not family.strip() or any(ord(c)<32 or ord(c)==127 for c in family):
+            raise ValueError('Invalid evidence_family: expected a nonempty string without control characters')
+
 def relative_path(value):
     if not isinstance(value,str) or not value or '\\' in value or ':' in value:
         raise ValueError('Input paths must be relative POSIX paths')
@@ -58,8 +64,9 @@ def discover(root, skips):
             'inputs':inputs,'excluded':sorted(excluded)}
 
 def resolve_config(root,config,skips):
-    if not isinstance(config,dict) or set(config)-{'evidence_role','alias_role','inputs','exclude'}:
+    if not isinstance(config,dict) or set(config)-{'evidence_role','evidence_family','alias_role','inputs','exclude'}:
         raise ValueError('Unsupported source.json keys/config')
+    validate_family(config)
     if config.get('evidence_role') not in ROLES:raise ValueError('Invalid evidence_role')
     if config.get('alias_role') not in (None,'origin','corroborator') or (config.get('alias_role') and config['evidence_role']!='primary'):
         raise ValueError('Invalid alias_role/evidence_role combination')
@@ -76,7 +83,7 @@ def resolve_config(root,config,skips):
         return [{**row,'dataset_role':'unknown'} for row in inventory['inputs']]
     selected=config['inputs']
     if not isinstance(selected,list):raise ValueError('inputs must be an array')
-    result=[];seen=set();selections=set()
+    result=[];seen={};selections={}
     for item in selected:
         if not isinstance(item,dict) or set(item)-{'path','member','dataset_role'} or not {'path','dataset_role'}<=set(item):
             raise ValueError('Invalid input configuration')
@@ -85,8 +92,10 @@ def resolve_config(root,config,skips):
         role=item['dataset_role']
         if role not in DATASETS:raise ValueError('Invalid dataset_role: '+str(role))
         identity=(path,member)
-        if identity in selections:raise ValueError('Duplicate input selection: '+path)
-        selections.add(identity)
+        if identity in selections:
+            if selections[identity]!=role:raise ValueError('Dataset role conflict for duplicate selection: '+path)
+            raise ValueError('Duplicate input selection: '+path)
+        selections[identity]=role
         disk=root/path
         if not disk.exists():raise ValueError('Missing input: '+path)
         matches=[row for row in inventory['inputs'] if (row['path']==path or disk.is_dir() and row['path'].startswith(path+'/')) and (member is None or row.get('member')==member)]
@@ -94,8 +103,10 @@ def resolve_config(root,config,skips):
         for row in matches:
             if excluded(row):continue
             key=(row['path'],row.get('member'))
-            if key in seen:raise ValueError('Duplicate/overlapping resolved input: '+row['path'])
-            seen.add(key);result.append({**row,'dataset_role':role})
+            if key in seen:
+                if seen[key]!=role:raise ValueError('Dataset role conflict for overlapping input: '+row['path'])
+                raise ValueError('Duplicate/overlapping resolved input: '+row['path'])
+            seen[key]=role;result.append({**row,'dataset_role':role})
     if not result and config['evidence_role']!='code_schema':raise ValueError('No selected active localization inputs')
     return sorted(result,key=lambda r:(r['path'],r.get('member','')))
 
@@ -135,7 +146,7 @@ def skip_payload(tokens):
                 previous=char
 
 
-def signatures(api,root,row):
+def signatures(api,root,row, *, include_insert_columns=False):
     """Read headers/DDL in a stream; never materialize INSERT payloads."""
     tables={};warnings=[]
     with api.open_sql(Path(root)/row['path'],row.get('member')) as stream:
@@ -170,7 +181,19 @@ def signatures(api,root,row):
                 while token[1].upper() in ('IGNORE','LOW_PRIORITY','DELAYED'):token=tokens.get()
                 if token[1].upper()=='INTO':table=api.next_name(tokens)
                 else:tokens.unget(token);table=api.next_name(tokens)
-                tables.setdefault(table,[]);skip_payload(tokens)
+                if include_insert_columns:
+                    token=tokens.get()
+                    columns=[]
+                    if token[0]=='(':
+                        while True:
+                            token=tokens.get()
+                            if token[0] in (')','eof',';'):break
+                            if token[0]=='word':columns.append(token[1].lower())
+                    else:tokens.unget(token)
+                    if not tables.get(table):tables[table]=columns
+                    skip_payload(tokens)
+                else:
+                    tables.setdefault(table,[]);skip_payload(tokens)
             elif verb in ('UPDATE','DELETE','ALTER','DROP'):
                 if verb=='UPDATE':table=api.next_name(tokens)
                 else:
@@ -187,9 +210,9 @@ def signatures(api,root,row):
     if names & {'characters','character_queststatus','character_inventory','character_aura'}:hints.append('characters')
     return {'tables':tables,'dataset_hint':hints[0] if len(hints)==1 else 'unknown','possible_dataset_roles':hints,'warnings':warnings}
 
-def scan(api,root):
+def scan(api,root, *, include_insert_columns=False):
     report=discover(root,api.SKIP_DIRS)
-    report['inputs']=[{**row,**signatures(api,root,row)} for row in report['inputs']]
+    report['inputs']=[{**row,**signatures(api,root,row,include_insert_columns=include_insert_columns)} for row in report['inputs']]
     report['hint_policy']='Table/schema signatures only; hints do not assign trust or select inputs.'
     return report
 
@@ -247,6 +270,8 @@ def wizard(api,root):
     defaults={n for n,k in enumerate(keys,1) if old and any((r['path'],r.get('member')) in old_keys for r in choices[k])}
     selected=select('Localization inputs / repo SQL trees:',[k[0]+('!'+k[1] if k[1] else '') for k in keys],defaults)
     config={'evidence_role':role,'inputs':[]}
+    if 'evidence_family' in old:
+        validate_family(old);config['evidence_family']=old['evidence_family']
     if old.get('alias_role') and role=='primary':config['alias_role']=old['alias_role']
     for n in selected:
         key=keys[n-1];rows=choices[key];hints={r['dataset_hint'] for r in rows}
@@ -268,6 +293,11 @@ def wizard(api,root):
     atomic_write(root/'source.json',config,previous);print('source.json записан атомарно.');return 0
 
 def command(api,args):
+    if args.command=='sources' or getattr(args,'all',False):
+        if getattr(args,'source_path',None):raise ValueError('Choose a source path OR --all')
+        import source_management
+        return source_management.command(api,args)
+    if not args.source_path:raise ValueError('Provide a source path or --all')
     root=Path(args.source_path).resolve()
     if args.command=='source-scan':result=scan(api,root)
     elif args.command=='source-validate':
