@@ -75,27 +75,27 @@ def create_schema(conn):
     conn.execute('CREATE TABLE IF NOT EXISTS inline_string_keys(source TEXT,entity TEXT,PRIMARY KEY(source,entity))')
 
 
-def persist_row(api, conn, source, table, row, file, rank, phase):
+def persist_row(api, conn, source, table, row, file, rank, phase, *, kind='skyfire_string', key_table='inline_string_keys'):
     if phase == 'entities':
-        api.persist_entity(conn, source, 'skyfire_string', row, file, rank, table)
+        api.persist_entity(conn, source, kind, row, file, rank, table)
         return
     entry = row.get('entry')
-    if not api.valid_entity_key('skyfire_string',entry):
-        api.schema_warning(conn,source,file,table,'skyfire_string','invalid runtime string entry',entry,row)
+    if not api.valid_entity_key(kind,entry):
+        api.schema_warning(conn,source,file,table,kind,'invalid runtime string entry',entry,row)
         return
-    conn.execute('INSERT OR IGNORE INTO inline_string_keys VALUES(?,?)',(source,json.dumps(entry)))
+    conn.execute('INSERT OR IGNORE INTO '+key_table+' VALUES(?,?)',(source,json.dumps(entry)))
     for locale, index in api.LOCALES.items():
         if index == 0:continue
         column = 'content_loc' + str(index)
         value = row.get(column)
         if column in row and value in (None,''):
-            api.persist_locale(conn,source,'skyfire_string',json.dumps(entry),locale,{'content':value},file,rank,table)
+            api.persist_locale(conn,source,kind,json.dumps(entry),locale,{'content':value},file,rank,table)
         elif value not in (None,''):
-            api.persist_locale(conn,source,'skyfire_string',json.dumps(entry),locale,
+            api.persist_locale(conn,source,kind,json.dumps(entry),locale,
                                {'content':value,'_provenance':{'content':{'file':file,'table':table,'adapter':'inline-wide'}}},file,rank,table)
 
 
-def update(api,t,source,file,conn,phase):
+def update(api,t,source,file,conn,phase, *, kind='skyfire_string', key_table='inline_string_keys'):
     tokens = api.statement_tokens(t)
     if not tokens or tokens[0][1].upper() != 'SET':
         raise ValueError('unsupported inline string UPDATE')
@@ -110,21 +110,21 @@ def update(api,t,source,file,conn,phase):
         assignments.append((column,api.sql_value(part[2:],t.variables)))
     if not assignments:return
     storage = 'entities' if phase == 'entities' else 'records'
-    condition, params = api.predicate_sql(tokens[pos+1:],'skyfire_string',storage,t.variables)
+    condition, params = api.predicate_sql(tokens[pos+1:],kind,storage,t.variables)
     rank = api.rank_for(file)
     if phase == 'entities':
-        for key, encoded in conn.execute('SELECT entity,fields FROM entities WHERE source=? AND kind=? AND '+condition,[source,'skyfire_string',*params]).fetchall():
+        for key, encoded in conn.execute('SELECT entity,fields FROM entities WHERE source=? AND kind=? AND '+condition,[source,kind,*params]).fetchall():
             values=json.loads(encoded)
             values['content']=assignments[0][1]
             values['_english_provenance']={'content':{'file':file,'table':t.inline_string_table,'field':'content_default'}}
             conn.execute('UPDATE entities SET fields=?,file=?,rank=? WHERE source=? AND kind=? AND entity=?',
-                         (json.dumps(values,ensure_ascii=False),file,rank,source,'skyfire_string',key))
+                         (json.dumps(values,ensure_ascii=False),file,rank,source,kind,key))
     else:
-        for (key,) in conn.execute('SELECT entity FROM inline_string_keys WHERE source=? AND '+condition,[source,*params]).fetchall():
+        for (key,) in conn.execute('SELECT entity FROM '+key_table+' WHERE source=? AND '+condition,[source,*params]).fetchall():
             for column,value in assignments:
                 locale = next(code for code,n in api.LOCALES.items() if n == int(column[11:]))
-                existing = api.raw_record(conn,source,'skyfire_string',key,locale)
+                existing = api.raw_record(conn,source,kind,key,locale)
                 values = dict(existing[0]) if existing else {}
                 values['content']=value
                 values['_provenance']={'content':{'file':file,'table':t.inline_string_table,'adapter':'inline-wide'}}
-                api.persist_locale(conn,source,'skyfire_string',key,locale,values,file,rank,t.inline_string_table)
+                api.persist_locale(conn,source,kind,key,locale,values,file,rank,t.inline_string_table)

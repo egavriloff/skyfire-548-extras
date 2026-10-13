@@ -1,7 +1,7 @@
 # Offline localization toolkit
 
 Standard-library Python tooling for ProjectSkyFire 5.4.8 World DB. Supports item,
-gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text, skyfire_string and points_of_interest. No live DB connection is made.
+gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text, skyfire_string, db_script_string and points_of_interest. No live DB connection is made.
 Repository locations are defined in [repository guidance](../../.agents/repository.md).
 
 ## Developer workflow
@@ -563,3 +563,32 @@ counters. Large provenance arrays are decoded one entry at a time (32 MiB maximu
 per JSON value), without retaining the full report. Missing or damaged reports
 produce a nonzero exit code with an explanatory message. These commands do not
 build an index, generate SQL, approve, publish or create artifacts.
+
+## DB-script strings
+
+`db_script_string` is a separate inline entity targeting the same-named World DB
+table: `entry`, `content_default`, and `content_loc1` through `content_loc11`.
+SkyFire's `LoadDbScriptStrings` calls `LoadSkyFireStrings` for entries in
+`[2000000000, 2000010000)`. DB-script TALK paths select session locale strings.
+The toolkit requires the same entry and proven, nonempty English text under the
+existing harmless identity normalization. A numeric ID alone is insufficient.
+No remapping or unverified table aliases are provided.
+
+The existing `skyfire_string` printf/WoW token contract is reused without changing
+its grammar or policies. Missing, extra, incompatible or unsupported tokens block
+export with format diagnostics. Unsupported tokens remain unsupported even when
+two donors agree. Source text and generated translations are never rewritten.
+PRIMARY/SUPPLEMENTAL rules, English-fallback exclusion, target preservation,
+source role/config fingerprints and provenance remain in effect.
+
+```sh
+python tools/localization/localize.py inspect db_script_string 2000005057 --locale ruRU
+python tools/localization/localize.py compare db_script_string 2000005057 --locale ruRU
+python tools/localization/localize.py export db_script_string 2000005057 --locale ruRU
+python tools/localization/localize.py export-all db_script_string --locale ruRU
+```
+
+The next explicitly requested index rebuild will include this entity. Reports
+track `db_script_string_fields`, PRIMARY/SUPPLEMENTAL field values, formatting
+failures, confirmed English fallback and existing target protection. Existing
+coverage/report commands display the new summary automatically.

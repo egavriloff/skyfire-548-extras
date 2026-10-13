@@ -9,7 +9,7 @@ configuration are documented in tools/localization/README.md.
 Use target SQL and actual target C++ loaders as the authority. External inputs
 are read-only; discover arbitrary reference IDs and independent repo/db inputs.
 Never guess schemas, numeric locales or entity identity from another core.
-Scope is item, gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text, skyfire_string and points_of_interest. Do not add types
+Scope is item, gameobject, gossip_menu_option, creature, quest, npc_text, creature_text, page_text, skyfire_string, db_script_string and points_of_interest. Do not add types
 or weaken matching policy without explicit authorization.
 
 1. Inventory ACTIVE SQL, including full/base dumps and SQL inside ZIP archives.
