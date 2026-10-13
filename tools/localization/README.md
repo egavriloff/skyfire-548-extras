@@ -701,3 +701,22 @@ with unchanged approved inputs produces identical README bytes. The README has
 no per-row provenance, source lists or detailed diagnostics. Its diagnostic CLI
 example reads the local review workspace, which may differ from the published
 snapshot; it does not regenerate the README.
+
+
+### Active update trees and unsupported archives
+
+Onboarding keeps `repo/sql/updates/<dataset>/` selectable as a whole tree whenever
+it contains active SQL/ZIP streams, including nested SQL directories. Grouping is
+independent of reference IDs and does not assign evidence or dataset roles.
+Global old/pending/archive/archives/deprecated/legacy exclusions remain in force.
+Auth/characters path boundaries or schema hints veto automatic localization
+selection in the wizard; they do not establish trust or infer world compatibility.
+Dataset-role selection still requires explicit review.
+
+The input reader currently supports SQL files and SQL members of ZIP archives.
+There is no pluggable archive backend or RAR extractor. Active `.rar` files appear
+in `source-scan` as `unsupported_archives`, including their path, size and an
+`unsupported archive: <path>` diagnostic. They are never selectable SQL inputs.
+A base directory containing only unsupported RAR archives is not offered as a
+processable SQL tree. No extraction, new dependency or archive-content guessing
+is performed. Prepare extracted SQL separately before selecting it as an input.

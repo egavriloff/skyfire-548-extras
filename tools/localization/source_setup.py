@@ -28,7 +28,7 @@ def discover(root, skips):
     root=Path(root).resolve()
     if not root.is_dir() or not any((root/n).is_dir() for n in ('repo','db')):
         raise ValueError('Source requires repo/ and/or db/: '+str(root))
-    inputs=[];excluded=[]
+    inputs=[];excluded=[];unsupported=[]
     def blocked(path):
         try:parts=path.resolve().relative_to(root).parts
         except ValueError:return True
@@ -48,8 +48,12 @@ def discover(root, skips):
             dirs[:]=keep
             for name in sorted(files):
                 p=Path(directory)/name;rel=p.relative_to(root).as_posix()
-                if p.suffix.casefold() not in ('.sql','.zip'):continue
+                if p.suffix.casefold() not in ('.sql','.zip','.rar'):continue
                 if blocked(p):excluded.append(rel);continue
+                if p.suffix.casefold()=='.rar':
+                    unsupported.append({'path':rel,'size_bytes':p.stat().st_size,'format':'rar',
+                                        'reason':'unsupported archive: '+rel})
+                    continue
                 size=p.stat().st_size
                 if p.suffix.casefold()=='.sql':inputs.append({'path':rel,'size_bytes':size})
                 else:
@@ -61,7 +65,7 @@ def discover(root, skips):
                                 excluded.append(rel+'!'+info.filename);continue
                             inputs.append({'path':rel,'member':info.filename,'size_bytes':info.file_size,'archive_size_bytes':size})
     return {'source_path':str(root),'locations':[n for n in ('repo','db') if (root/n).is_dir()],
-            'inputs':inputs,'excluded':sorted(excluded)}
+            'inputs':inputs,'excluded':sorted(excluded),'unsupported_archives':sorted(unsupported,key=lambda row:row['path'])}
 
 def resolve_config(root,config,skips):
     if not isinstance(config,dict) or set(config)-{'evidence_role','evidence_family','alias_role','inputs','exclude'}:
@@ -246,6 +250,30 @@ def atomic_write(path,config,previous):
     finally:
         if temporary is not None and temporary.exists():temporary.unlink()
 
+def selectable_inputs(report):
+    """Keep active update dataset trees whole, independent of nested SQL layout."""
+    choices={}
+    parents={str(PurePosixPath(r['path']).parent) for r in report['inputs'] if r['path'].startswith('repo/')}
+    for row in report['inputs']:
+        parts=PurePosixPath(row['path']).parts
+        if len(parts)>4 and parts[:3]==('repo','sql','updates'):
+            path_key='/'.join(parts[:4])
+        elif row['path'].startswith('repo/'):
+            path_key=str(PurePosixPath(row['path']).parent)
+            if any(p.startswith(path_key+'/') for p in parents):path_key=row['path']
+        else:path_key=row['path']
+        member=None if row['path'].startswith('repo/') else row.get('member')
+        choices.setdefault((path_key,member),[]).append(row)
+    return choices
+
+
+def non_localization_input(row):
+    # A path boundary can veto automatic selection, never establish world trust.
+    return (any(part.casefold() in ('auth','characters') for part in PurePosixPath(row['path']).parts[:-1])
+            or row.get('dataset_hint') in ('auth','characters')
+            or row.get('dataset_role') in ('auth','characters'))
+
+
 def wizard(api,root):
     root=Path(root).resolve();path=root/'source.json';previous=path.read_bytes() if path.exists() else None
     old=json.loads(previous.decode('utf-8')) if previous else {}
@@ -254,21 +282,18 @@ def wizard(api,root):
     print(json.dumps(report,ensure_ascii=False,indent=2))
     if previous:print('Существующий source.json будет предложен для migration; до подтверждения он не изменится.')
     role=choose('Evidence role (имя каталога не определяет доверие):',ROLES,ROLES.index(old['evidence_role']) if old.get('evidence_role') in ROLES else 1)
-    # Repository parents form selectable trees; DB SQL/ZIP streams stay individually selectable.
-    choices={}
-    repo_parents={str(PurePosixPath(r['path']).parent) for r in report['inputs'] if r['path'].startswith('repo/')}
-    for row in report['inputs']:
-        path_key=str(PurePosixPath(row['path']).parent) if row['path'].startswith('repo/') else row['path']
-        if row['path'].startswith('repo/') and any(p.startswith(path_key+'/') for p in repo_parents):path_key=row['path']
-        member=None if row['path'].startswith('repo/') else row.get('member')
-        key=(path_key,member)
-        choices.setdefault(key,[]).append(row)
+    # Unsupported archives are diagnostics, never selectable SQL trees.
+    for archive in report.get('unsupported_archives',[]):print(archive['reason'])
+    choices=selectable_inputs(report)
     keys=sorted(choices,key=lambda k:(k[0],k[1] or ''))
     try:old_resolved=resolve_config(root,old,api.SKIP_DIRS) if old else []
     except ValueError:old_resolved=[]
     old_keys={(r['path'],r.get('member')) for r in old_resolved}
-    defaults={n for n,k in enumerate(keys,1) if old and any((r['path'],r.get('member')) in old_keys for r in choices[k])}
-    selected=select('Localization inputs / repo SQL trees:',[k[0]+('!'+k[1] if k[1] else '') for k in keys],defaults)
+    defaults={n for n,k in enumerate(keys,1) if old
+              and not any(non_localization_input(r) for r in choices[k])
+              and not any(non_localization_input(r) for r in old_resolved if (r['path'],r.get('member')) in {(x['path'],x.get('member')) for x in choices[k]})
+              and any((r['path'],r.get('member')) in old_keys for r in choices[k])}
+    selected=select('Localization inputs / repo SQL trees (SQL/ZIP only; unsupported archives omitted):',[k[0]+('!'+k[1] if k[1] else '') for k in keys],defaults)
     config={'evidence_role':role,'inputs':[]}
     if 'evidence_family' in old:
         validate_family(old);config['evidence_family']=old['evidence_family']

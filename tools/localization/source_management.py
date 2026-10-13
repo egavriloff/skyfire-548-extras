@@ -94,6 +94,8 @@ def scan_all(api):
             schemas={s['source_table'] for s in api.ALL_SPECS.values()}|{s['target_table'] for s in api.ALL_SPECS.values()}
             localized=lambda item:sorted(t for t,columns in item['tables'].items() if t in schemas or t.startswith('locales_') or t.endswith('_locale') or any(re.search(r'_loc[1-9][0-9]*$',c) for c in columns))
             capable=lambda item:any(any(c.endswith('_loc8') or c=='locale' for c in columns) for t,columns in item['tables'].items() if t in localized(item))
+            row['unsupported_archives']=inventory.get('unsupported_archives',[])
+            for archive in row['unsupported_archives']:row['diagnostics'].append({'severity':'WARN','reason':archive['reason']})
             inputs=[]
             for item in inventory['inputs']:
                 inputs.append({**item,'localization_schemas':localized(item),'ruru_capable':capable(item)})
