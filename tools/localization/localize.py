@@ -21,6 +21,7 @@ from typing import Iterator, TextIO
 ROOT = Path(__file__).resolve().parents[2]
 sys.dont_write_bytecode = True
 import publishing
+import reporting
 import evidence_roles
 import npc_text
 import creature_text
@@ -3166,6 +3167,12 @@ def command_publish(args: argparse.Namespace) -> int:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
+    for command in ('coverage','report'):
+        q=sub.add_parser(command,help='Read existing review coverage' if command=='coverage' else 'Read existing review metadata')
+        q.add_argument('--locale',required=True,choices=tuple(code for code in LOCALES if code!='enUS'))
+        if command=='coverage':
+            q.add_argument('--verbose',action='store_true',help='Show all diagnostic and entity-specific counters')
+            q.add_argument('--json',action='store_true',help='Print deterministic JSON to stdout only')
     sub.add_parser("index", help="Build the local streaming SQLite index")
     for command in ("source-scan","source-init","source-validate"):
         q=sub.add_parser(command,help="Inspect, configure or validate local reference inputs")
@@ -3204,6 +3211,8 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = parser().parse_args()
     try:
+        if args.command in ('coverage','report'):
+            return reporting.command(sys.modules[__name__],args)
         if args.command in ("source-scan","source-init","source-validate"):
             return source_setup.command(sys.modules[__name__],args)
         if args.command == "index":

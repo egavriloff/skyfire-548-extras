@@ -536,3 +536,30 @@ representations, base evidence and relationship provenance. `AMBIGUOUS` blocks
 export. POI counters distinguish exact identity, relationship remapping, PRIMARY
 and SUPPLEMENTAL fields, coordinate/structural failures, relationship failures,
 English fallback and existing target protection.
+
+## Read existing review reports
+
+These commands only read `.tmp/localization/review/<locale>/report-<locale>.json`:
+
+```sh
+python tools/localization/localize.py coverage --locale ruRU
+python tools/localization/localize.py coverage --locale ruRU --verbose
+python tools/localization/localize.py coverage --locale ruRU --json
+python tools/localization/localize.py report --locale ruRU
+```
+
+`coverage` lists all reported entities in the same lexicographic order as bulk
+export. Target coverage is exported entities divided by target entities; evidence
+coverage is exported entities divided by candidates. TOTAL percentages use summed
+counts, never averages. Empty denominators render as `-`, or JSON `null`.
+`--verbose` retains optional diagnostics and entity-specific counters. JSON output
+has stable key ordering, numeric percentages and the original counters; it writes
+only to stdout. Missing optional counters default to zero.
+
+`report` shows metadata and recomputed totals. PRIMARY/SUPPLEMENTAL figures use
+exported **field-value** counters, where available; they are not entity counts.
+These figures may cover only entities whose report version includes those
+counters. Large provenance arrays are decoded one entry at a time (32 MiB maximum
+per JSON value), without retaining the full report. Missing or damaged reports
+produce a nonzero exit code with an explanatory message. These commands do not
+build an index, generate SQL, approve, publish or create artifacts.
