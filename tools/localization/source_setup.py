@@ -114,7 +114,7 @@ def resolve_config(root,config,skips):
     if not result and config['evidence_role']!='code_schema':raise ValueError('No selected active localization inputs')
     return sorted(result,key=lambda r:(r['path'],r.get('member','')))
 
-def skip_payload(tokens):
+def skip_payload(tokens, *, observe=None):
     """Skip a statement without decoding strings or assuming one statement per line."""
     tokens.pushback.clear();quote=None;pending_slashes=0
     markers=re.compile(r"[;'\"`#/-]")
@@ -136,7 +136,10 @@ def skip_payload(tokens):
             if tokens._peek()==quote:tokens._char();continue
             quote=None;continue
         match=markers.search(tokens.buf,tokens.pos)
-        if not match:tokens.pos=len(tokens.buf);continue
+        if not match:
+            if observe:observe(tokens.buf[tokens.pos:])
+            tokens.pos=len(tokens.buf);continue
+        if observe:observe(tokens.buf[tokens.pos:match.start()])
         tokens.pos=match.start();char=tokens._char()
         if char==';':return
         if char in ("'",'"','`'):quote=char

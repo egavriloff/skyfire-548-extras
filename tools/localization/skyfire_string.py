@@ -105,11 +105,13 @@ def update(api,t,source,file,conn,phase, *, kind='skyfire_string', key_table='in
         column = part[0][1].lower() if part else ''
         relevant = column == 'content_default' if phase == 'entities' else bool(re.fullmatch(r'content_loc(?:[1-9]|10|11)',column))
         if not relevant:continue
+        api.assert_resolved_dependencies(part[2:],t.variables)
         if len(part) != 3 or part[1][0] != '=':
             raise ValueError('unsupported inline string UPDATE expression')
         assignments.append((column,api.sql_value(part[2:],t.variables)))
     if not assignments:return
     storage = 'entities' if phase == 'entities' else 'records'
+    api.assert_resolved_dependencies(tokens[pos+1:],t.variables)
     condition, params = api.predicate_sql(tokens[pos+1:],kind,storage,t.variables)
     rank = api.rank_for(file)
     if phase == 'entities':

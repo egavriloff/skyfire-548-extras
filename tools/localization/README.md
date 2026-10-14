@@ -720,3 +720,25 @@ in `source-scan` as `unsupported_archives`, including their path, size and an
 A base directory containing only unsupported RAR archives is not offered as a
 processable SQL tree. No extraction, new dependency or archive-content guessing
 is performed. Prepare extracted SQL separately before selecting it as an input.
+
+
+### Unresolved SQL dependencies
+
+Unsupported SQL queries/functions in `SET` remain file-local UNRESOLVED values;
+no SQL database, MAX value or missing literal is evaluated or guessed. Irrelevant
+statements are skipped with `skipped_unresolved_irrelevant` diagnostics.
+
+A plain donor INSERT whose single generated key depends on an unresolved
+`SELECT MAX(...)` may discard only that unprovable row (`skipped_unprovable_row`).
+It creates no base/locale evidence and scanning continues. This exception does
+not permit target rows, composite keys, populated inline locale slots, REPLACE,
+or ON DUPLICATE mutations. Unresolved locale keys/values, indexed English or
+structural fields, and relevant UPDATE/DELETE dependencies retain hard errors
+(`hard_error_relevant_state`). Unused metadata fields cannot become identity.
+Later literal reassignment resolves the variable independently in each pass.
+
+Diagnostics include the original exception type, source, file, pass, statement,
+table, adapter/entity, dependency assignment and decision. Inline string deletes
+by `content_default` use English base identity rather than translated content;
+they replay in the entity pass and remove matching locale/key records. Conditional
+stored procedures and SQL subqueries are not executed by the offline parser.

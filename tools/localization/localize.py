@@ -733,8 +733,13 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     skip_statement(t)
 
 
-def literal_tuple(t: Tokens) -> list[object]:
-    # Called after opening parenthesis. Consume expressions conservatively.
+def literal_tuple(t: Tokens, *, defer_unresolved=False) -> list[object]:
+    # Deferred cells are never persisted; INSERT dependency classification owns them.
+    def value(expression):
+        try:return sql_value(expression,t.variables)
+        except UnresolvedVariableError as exc:
+            if not defer_unresolved:raise
+            return UnresolvedCell(tuple(expression),str(exc))
     values: list[object] = []
     expr: list[tuple[str, str]] = []
     depth = 0
@@ -750,10 +755,10 @@ def literal_tuple(t: Tokens) -> list[object]:
                 depth -= 1
                 expr.append(x)
             else:
-                values.append(sql_value(expr, t.variables))
+                values.append(value(expr))
                 break
         elif x[0] == "," and depth == 0:
-            values.append(sql_value(expr, t.variables))
+            values.append(value(expr))
             expr = []
         else:
             expr.append(x)
@@ -771,6 +776,12 @@ class UnresolvedVariable:
     file: str = ""
     pass_name: str = ""
     status: str = "UNRESOLVED"
+
+
+@dataclass(frozen=True)
+class UnresolvedCell:
+    expression: tuple
+    diagnostic: str
 
 
 class UnresolvedVariableError(ValueError):
@@ -791,6 +802,8 @@ def sql_value(expr: list[tuple[str, str]], variables: dict[str, object] | None =
         if kind == "string":
             return val
         if val.startswith("@"):
+            if re.fullmatch(r"@[A-Za-z_][A-Za-z_0-9]*[+*\-].+",val):
+                return integer_expression(val,variables or {})
             if variables is None or val.casefold() not in variables:
                 raise ValueError(f"неопределённая SQL-переменная: {val}")
             value = variables[val.casefold()]
@@ -1091,6 +1104,72 @@ def persist_reference_locale(conn, source, table, plan, row, file, rank):
         persist_locale(conn, source, kind, entity, locale, fields, file, rank, table)
 
 
+def assert_resolved_dependencies(tokens,variables):
+    for kind,text in tokens:
+        if kind=='string':continue
+        for name in re.findall(r'(?<!@)@[A-Za-z_][A-Za-z_0-9]*',text):
+            if isinstance(variables.get(name.casefold()),UnresolvedVariable):sql_value([('word',name)],variables)
+
+
+def dependency_warning(conn,source,file,phase,t,table,decision,detail):
+    info=table_info(table,source)
+    entity=info[0] if info else locale_table_kind(table) or '-'
+    message=(f'exception_type=UnresolvedVariableError source={source} file={file} pass={phase} '
+             f'table={table} adapter/entity={entity} decision={decision} statement={t.statement_context()}: {detail}')
+    parser_warning(conn,source,file,message)
+    schema_warning(conn,source,file,table,entity,decision,
+                   row={'pass':phase,'statement':t.statement_context(),'dependency':detail},emit_warning=False)
+
+
+def skip_irrelevant(t,conn,source,file,phase,table):
+    unresolved={name:value for name,value in t.variables.items() if isinstance(value,UnresolvedVariable)}
+    if not unresolved:
+        t.skip_raw_statement();return
+    found=set();tail=''
+    def observe(text):
+        nonlocal tail
+        text=tail+text
+        partial=re.search(r'@[A-Za-z_][A-Za-z_0-9]*$',text)
+        tail=partial[0] if partial else ''
+        for name in re.findall(r'(?<!@)@[A-Za-z_][A-Za-z_0-9]*',text):
+            if name.casefold() in unresolved:found.add(name.casefold())
+    source_setup.skip_payload(t,observe=observe)
+    for name in sorted(found):
+        value=unresolved[name]
+        dependency_warning(conn,source,file,phase,t,table,'skipped_unresolved_irrelevant',
+                           f'variable={value.variable} assignment={value.assignment} expression={value.expression}')
+
+
+def classify_unresolved_insert(t,source,table,row):
+    unknown={c for c,v in row.items() if isinstance(v,UnresolvedCell)}
+    info=table_info(table,source)
+    kind=info[0] if info else locale_table_kind(table)
+    if not kind:return 'skipped_unresolved_irrelevant'
+    spec=ALL_SPECS[kind]
+    base=table==spec['target_entity'] or table in INLINE_STRING_TABLES
+    if not base and unknown-{'verifiedbuild'}:return 'hard_error_relevant_state'
+    keys=set(spec['entity_fields']) if base else set(spec['source_id'] if isinstance(spec['source_id'],tuple) else (spec['source_id'],))|{spec['source_locale']}
+    key_unknown={c for c in unknown if keys & set(canonical_row(kind,{c:0}))}
+    if kind=='gossip_menu_option':key_unknown.update(unknown & {'menu_id','optionindex','id'})
+    localized=[c for c in row if any(re.fullmatch(re.escape(pattern.split('{n}')[0].lower())+r'[0-9]+',c) for pattern in spec['wide_fields'].values())]
+    has_locale_values=any(row[c] not in (None,'') for c in localized)
+    generated_key=bool(key_unknown) and all(any(
+        isinstance(t.variables.get(name.casefold()),UnresolvedVariable)
+        and re.search(r'\bSELECT\s+MAX\s*\(',t.variables[name.casefold()].expression,re.I)
+        for token_kind,text in row[column].expression if token_kind!='string'
+        for name in re.findall(r'(?<!@)@[A-Za-z_][A-Za-z_0-9]*',text)) for column in key_unknown)
+    if (base and source!='target' and len(keys)==1 and key_unknown and generated_key
+            and not has_locale_values and t.context_head and t.context_head[0].upper()=='INSERT'):
+        remaining=unknown-keys
+        if all(not identity_fields(kind,{c:0}) for c in remaining):return 'skipped_unprovable_row'
+    if key_unknown:return 'hard_error_relevant_state'
+    for column in unknown:
+        if base:
+            if identity_fields(kind,{column:0}) or column in localized:return 'hard_error_relevant_state'
+        elif column in spec['source_target_fields'].values() or column in localized:return 'hard_error_relevant_state'
+    return 'skipped_unresolved_irrelevant'
+
+
 def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str], list[str]], conn: sqlite3.Connection, rank: int,
                  phase: str, candidates: set[str]) -> None:
     first = t.get()
@@ -1100,6 +1179,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
         t.unget(first)
         return
     table = next_name(t)
+    t.current_table=table
     if not table:
         skip_statement(t)
         return
@@ -1118,7 +1198,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     entity_tables.update(INLINE_STRING_TABLES)
     relevant = locale_tables if phase == "locales" else entity_tables
     if table not in relevant:
-        t.skip_raw_statement()
+        skip_irrelevant(t,conn,source,file,phase,table)
         return
     cols: list[str] | None = None
     x = t.get()
@@ -1181,13 +1261,18 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                 if first_index == 0:
                     # Read the integer entity key before paying to tokenize every non-candidate row.
                     prefix = t.get()
+                    unresolved_prefix = None
                     try:
                         key_value = int(sql_value([prefix], t.variables))
-                    except UnresolvedVariableError:
-                        raise
+                    except UnresolvedVariableError as exc:
+                        unresolved_prefix=UnresolvedCell((prefix,),str(exc));key_value=None
                     except (ValueError, TypeError):
                         key_value = None
-                    if table in ("gossip_menu_option", "gossip_menu_option_box", "gossip_menu_option_action"):
+                    if unresolved_prefix is not None:
+                        comma=t.get()
+                        if comma[0]!=',':raise UnresolvedVariableError(unresolved_prefix.diagnostic)
+                        vals=[unresolved_prefix]+literal_tuple(t,defer_unresolved=True)
+                    elif table in ("gossip_menu_option", "gossip_menu_option_box", "gossip_menu_option_action"):
                         comma = t.get()
                         second = t.get()
                         comma2 = t.get()
@@ -1214,7 +1299,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                             return
                         vals_prefix = [(prefix[0], prefix[1]), (second[0], second[1])]
                         # Reconstruct values by parsing the remaining tuple and prepend key columns.
-                        rest = literal_tuple(t)
+                        rest = literal_tuple(t,defer_unresolved=True)
                         vals = [sql_value([vals_prefix[0]], t.variables), sql_value([vals_prefix[1]], t.variables)] + rest
                     elif key_value is None or json.dumps(key_value) not in candidates:
                         t.skip_raw_tuple()
@@ -1228,14 +1313,27 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         return
                     else:
                         comma = t.get()
-                        rest = literal_tuple(t)
+                        rest = literal_tuple(t,defer_unresolved=True)
                         vals = [sql_value([prefix], t.variables)] + rest
                 else:
-                    vals = literal_tuple(t)
+                    vals = literal_tuple(t,defer_unresolved=True)
             else:
-                vals = literal_tuple(t)
+                vals = literal_tuple(t,defer_unresolved=True)
             if len(cols) == len(vals):
                 row = {c: v for c, v in zip(cols, vals)}
+                if any(isinstance(v,UnresolvedCell) for v in vals):
+                    decision=classify_unresolved_insert(t,source,table,row)
+                    if decision=='hard_error_relevant_state':
+                        raise UnresolvedVariableError(next(v.diagnostic for v in vals if isinstance(v,UnresolvedCell)))
+                    for cell in vals:
+                        if isinstance(cell,UnresolvedCell):dependency_warning(conn,source,file,phase,t,table,decision,cell.diagnostic)
+                    if decision=='skipped_unprovable_row':
+                        t.skipped_unprovable_insert=True
+                        sep=t.get()
+                        if sep[0]==',':continue
+                        if sep[0] in (';','eof'):return
+                        raise UnresolvedVariableError('Unknown-key INSERT has unsupported state-changing suffix: '+sep[1])
+                    row={c:v for c,v in row.items() if not isinstance(v,UnresolvedCell)}
                 if phase == 'entities' and table in points_of_interest.GOSSIP:
                     points_of_interest.persist_relationship(sys.modules[__name__],conn,source,table,row,file,rank)
                 if table in INLINE_STRING_TABLES:
@@ -1307,6 +1405,8 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                 continue
             if sep[0] == ";" or sep[0] == "eof":
                 return
+            if getattr(t,'skipped_unprovable_insert',False):
+                raise UnresolvedVariableError('Unknown-key INSERT has unsupported state-changing suffix: '+sep[1])
             t.unget(sep)
             t.skip_raw_statement()
             return
@@ -1355,6 +1455,8 @@ def scan_file(conn: sqlite3.Connection, source: str, path: Path, member: str | N
                 token = t.get()
                 if token[0] == "eof":
                     break
+                t.current_table = None
+                t.skipped_unprovable_insert = False
                 t.capture_context = True
                 t.context_head = [token[1][:96]]
                 t.context_tail.clear()
@@ -1372,8 +1474,12 @@ def scan_file(conn: sqlite3.Connection, source: str, path: Path, member: str | N
                 # Index commits in manageable batches.
                 if conn.total_changes and conn.total_changes % 50000 < 500:
                     conn.commit()
-        except ValueError as exc:
-            raise ValueError(f"source={source} file={file} pass={phase} statement={t.statement_context()}: {exc}") from exc
+        except (ValueError,KeyError,IndexError,TypeError,sqlite3.Error) as exc:
+            table=getattr(t,'current_table',None) or '-'
+            info=table_info(table,source)
+            entity=info[0] if info else locale_table_kind(table) or '-'
+            decision='hard_error_relevant_state' if isinstance(exc,UnresolvedVariableError) else 'parser_error'
+            raise ValueError(f"exception_type={type(exc).__name__} source={source} file={file} pass={phase} table={table} adapter/entity={entity} decision={decision} statement={t.statement_context()}: {exc}") from exc
         finally:
             t.capture_context = False
             SCAN_CONTEXT.reset(context_token)
@@ -1719,10 +1825,12 @@ def parse_delete(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         skip_statement(t)
         return
     table = next_name(t)
+    t.current_table=table
     if table not in TARGET_TABLES:
-        t.skip_raw_statement()
+        skip_irrelevant(t,conn,source,file,phase,table)
         return
     tokens = statement_tokens(t)
+    assert_resolved_dependencies(tokens,t.variables)
     points_of_interest.replay_mutation(sys.modules[__name__],conn,source,file,table,tokens,t.variables,'DELETE',phase)
     if table in ('points_of_interest_locale','locales_points_of_interest') and phase != 'entities':
         points_of_interest.delete_locales(sys.modules[__name__],conn,source,table,tokens,t.variables)
@@ -1732,6 +1840,19 @@ def parse_delete(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         key_table=db_script_string.KEY_TABLE if inline_kind=='db_script_string' else 'inline_string_keys'
         storage = 'entities' if phase == 'entities' else 'records'
         if not tokens or tokens[0][1].upper() != 'WHERE':raise ValueError('inline string DELETE requires WHERE')
+        english_predicate=any(token[1].lower()=='content_default' for token in tokens[1:] if token[0]=='word')
+        if english_predicate:
+            # Locale pass has no complete English base snapshot yet. Replay in entities.
+            for token in tokens[1:]:
+                if token[1].startswith('@'):sql_value([token],t.variables)
+            if phase!='entities':return
+            condition,params=predicate_sql(tokens[1:],inline_kind,'entities',t.variables)
+            keys=[r[0] for r in conn.execute('SELECT entity FROM entities WHERE source=? AND kind=? AND '+condition,[source,inline_kind,*params])]
+            for key in keys:
+                conn.execute('DELETE FROM records WHERE source=? AND kind=? AND entity=?',(source,inline_kind,key))
+                conn.execute('DELETE FROM entities WHERE source=? AND kind=? AND entity=?',(source,inline_kind,key))
+                conn.execute('DELETE FROM '+key_table+' WHERE source=? AND entity=?',(source,key))
+            return
         condition,params = predicate_sql(tokens[1:],inline_kind,storage,t.variables)
         conn.execute(f'DELETE FROM {storage} WHERE source=? AND kind=? AND '+condition,[source,inline_kind,*params])
         if phase != 'entities':
@@ -1784,6 +1905,11 @@ def normalized_update_field(kind: str, table: str, column: str) -> tuple[str, st
                 return (field, locale) if locale else None
         return None
     spec = ALL_SPECS[kind]
+    if kind in ('skyfire_string','db_script_string') and table in INLINE_STRING_TABLES:
+        if column=='content_default':return ('content','entity')
+        match=re.fullmatch(r'content_loc([1-9]|10|11)',column)
+        if match:return ('content',next(code for code,n in LOCALES.items() if n==int(match[1])))
+        return None
     if table == 'creature_template_wdb':
         column = {'name1': 'name', 'title': 'subname', 'classification': 'rank'}.get(column, column)
         return (column, 'entity') if column in ('name', 'subname', *CREATURE_STRUCT) else None
@@ -2031,8 +2157,9 @@ def ignored_metadata_join(tokens, kind, table):
 
 def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, phase: str | None = None) -> None:
     table = next_name(t)
+    t.current_table=table
     if table not in TARGET_TABLES:
-        t.skip_raw_statement()
+        skip_irrelevant(t,conn,source,file,phase,table)
         return
     if table in INLINE_STRING_TABLES:
         t.inline_string_table = table
@@ -2063,11 +2190,13 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
                 if len(part) < 3 or part[1][0] != "=":
                     raise ValueError("неподдерживаемое выражение SET")
                 expression = part[2:]
+                assert_resolved_dependencies(expression,t.variables)
                 if len(expression) != 1 and not re.fullmatch(r"[-+]?\d+\.\d+", "".join(token[1] for token in expression)):
                     raise ValueError("неподдерживаемое выражение SET")
                 assignments[part[0][1].lower()] = sql_value(expression, t.variables)
         if not relevant:
             return  # Gameplay metadata is intentionally outside this index.
+        assert_resolved_dependencies(tokens[where_pos+1:],t.variables)
         condition, params = predicate_sql(tokens[where_pos + 1:], kind, storage, t.variables)
         if storage == 'records':
             condition, params = reference_wide_filter(source, table, kind, condition, params)
@@ -2122,7 +2251,7 @@ def build_index(_: argparse.Namespace) -> int:
             counts[source] += 1
         except (OSError, zipfile.BadZipFile, KeyError) as exc:
             conn.execute("INSERT INTO warnings VALUES(?,?,?)", (source, str(path), str(exc)))
-            print(f"Ошибка индексации {path}: {exc}", file=sys.stderr)
+            print(f"Ошибка индексации source={source} file={path} pass=locales exception_type={type(exc).__name__}: {exc}", file=sys.stderr)
         conn.commit()
     conn.commit()
     # Base entity indexing is sparse: only IDs with candidate translations are decoded in detail.
@@ -2141,7 +2270,7 @@ def build_index(_: argparse.Namespace) -> int:
             scan_file(conn, source, path, member, schemas, "entities", candidates_by_source[source])
         except (OSError, zipfile.BadZipFile, KeyError) as exc:
             conn.execute("INSERT INTO warnings VALUES(?,?,?)", (source, str(path), "entity pass: " + str(exc)))
-            print(f"Ошибка entity-pass {path}: {exc}", file=sys.stderr)
+            print(f"Ошибка entity-pass source={source} file={path} pass=entities exception_type={type(exc).__name__}: {exc}", file=sys.stderr)
         conn.commit()
     finalize_schema_evidence(conn)
     npc_text.finalize(sys.modules[__name__],conn)

@@ -153,7 +153,8 @@ class SqlVariableTests(unittest.TestCase):
 
     def test_unresolved_irrelevant_statements_continue(self):
         self.scan("SET @X:=DATABASE(); INSERT INTO smart_scripts(entryorguid,id) VALUES(@X,0); UPDATE creature SET id=@X; DELETE FROM smart_scripts WHERE entryorguid=@X; CREATE TABLE movement(entry int); DROP TABLE movement;")
-        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM warnings').fetchone()[0],1)
+        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM warnings').fetchone()[0],4)
+        self.assertEqual(self.c.execute("SELECT COUNT(*) FROM warnings WHERE message LIKE '%decision=skipped_unresolved_irrelevant%'").fetchone()[0],3)
 
     def test_unresolved_indexed_key_and_value_fail(self):
         for columns,values in [('entry,groupid,id,text',"@X,0,0,'Text'"),
