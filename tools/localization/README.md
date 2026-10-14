@@ -316,9 +316,14 @@ Adapters recognize wide `locales_creature_text`, row `creature_text_locale`, and
 explicit source-local `creature_text.BroadcastTextID -> broadcast_text ->
 broadcast_text_locale` relationships. CreatureID/entry and text_group/groupid
 aliases are schema aliases, not source-specific behavior. Only the single target
-Text variant is transferred; unsupported female variants are not target columns.
-Broadcast IDs are never compared or copied across sources. Both the source's
-English Text and language must confirm its broadcast relationship.
+Text field is transferred. The broadcast adapter preserves the legacy `text` English proof
+first, even when `text1` also matches. Only if `text` fails that English proof
+is `text1` considered. If neither matches, broadcast-backed evidence is rejected.
+Locale text comes from the chosen variant: an empty `text` locale never triggers
+a switch to `text1` when the English `text` proof passed. Provenance records `broadcast_variant` and
+the selected fields in the relationship chain. Broadcast IDs are never compared
+or copied across sources. The source language must still confirm the broadcast
+relationship; all entity identity and evidence-role checks remain unchanged.
 
 Matching requires the complete composite key, nonempty English Text (existing
 representation comparison only), and equal type, language, probability, emote,
@@ -742,3 +747,52 @@ table, adapter/entity, dependency assignment and decision. Inline string deletes
 by `content_default` use English base identity rather than translated content;
 they replay in the entity pass and remove matching locale/key records. Conditional
 stored procedures and SQL subqueries are not executed by the offline parser.
+
+
+### Source contribution and coverage gaps
+
+```sh
+python tools/localization/localize.py source-contribution --locale ruRU
+python tools/localization/localize.py source-contribution --locale ruRU --verbose
+python tools/localization/localize.py source-contribution --locale ruRU --json
+python tools/localization/localize.py gaps --locale ruRU
+python tools/localization/localize.py gaps --locale ruRU --entity creature_text
+python tools/localization/localize.py gaps --locale ruRU --json
+```
+
+Both commands read the existing index through a read-only SQLite connection.
+They never parse SQL, rebuild an index, export SQL or change review/publication
+artifacts. JSON goes to stdout; bounded progress messages go to stderr.
+Exception flags use their normal defaults (verified aliases/single identity off).
+
+Contribution uses the unchanged production decision engine for the baseline and
+leave-one-source-out ablations. Memory-only TEMP views hide every row belonging
+to the excluded source, including base, locale, invalid-value and relationship
+evidence. PRIMARY ablations always rerun the engine; unreachable observations
+may reuse a baseline result. Source-scoped lookup caching reduces repeated reads.
+Code/schema sources are excluded from contributor rows. Roles/config fingerprints
+come from the index, not current directory names or edited local configs.
+
+Lost/gained counters compare entity/key/locale exportability, not the selected
+provenance count. Net contribution is lost minus gained. Unique exported fields
+are baseline field slots no longer exportable without the source; they do not
+count cosmetic changes to the selected raw value. Conflict changes count entities
+with any conflicting field, including PARTIAL rows. Verbose output adds entity
+breakdowns and JSON includes status transitions. If removing the only PRIMARY
+source violates the engine's precondition, that ablation is explicitly marked
+with `analysis_error`; no trust role is invented to make it runnable.
+
+Quest objectives reuse their parent's quest decision and strict objective checks.
+Physical objective fields are counted under `quest_objective`, preventing double
+field counts; a quest row's exportability retains the production engine meaning.
+
+Gaps aggregates engine statuses and machine-readable causes from indexed base
+fields, detailed proofs and parser relationship diagnostics. Structural patterns
+show bounded scalar target/source values; full competing texts are omitted.
+`structural_field:*`, `english_text_mismatch:*`, placeholder, ambiguity,
+relationship, fallback and existing-target reasons are deduplicated per row/field.
+`supplemental/` reasons describe rejected fill evidence, not PRIMARY vetoes.
+Empty optional target English fields are not counted as missing translations.
+Unclassified engine blocks remain explicit rather than being guessed away.
+Reasons overlap: affected row/field counts are diagnostic impact, not predicted
+recoverable exports. Entity-filtered output adds top mismatch patterns.

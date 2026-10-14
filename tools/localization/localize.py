@@ -31,6 +31,7 @@ import skyfire_string
 import db_script_string
 import achievement_reward
 import source_setup
+import analytics
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
 LOCALES = {
@@ -3347,6 +3348,12 @@ def parser() -> argparse.ArgumentParser:
         if command=='coverage':
             q.add_argument('--verbose',action='store_true',help='Show all diagnostic and entity-specific counters')
             q.add_argument('--json',action='store_true',help='Print deterministic JSON to stdout only')
+    for command in ('source-contribution','gaps'):
+        q=sub.add_parser(command,help='Read-only decision analytics over the existing index')
+        q.add_argument('--locale',required=True,choices=tuple(code for code in LOCALES if code!='enUS'))
+        q.add_argument('--json',action='store_true',help='Print deterministic JSON')
+        if command=='source-contribution':q.add_argument('--verbose',action='store_true')
+        else:q.add_argument('--entity',choices=tuple(sorted(set(SPECS)|{'quest_objective'})))
     sub.add_parser("index", help="Build the local streaming SQLite index")
     q=sub.add_parser("sources",help="Read-only reference summary")
     q.add_argument("--json",action="store_true",help="Print deterministic JSON")
@@ -3390,6 +3397,8 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = parser().parse_args()
     try:
+        if args.command in ('source-contribution','gaps'):
+            return analytics.command(sys.modules[__name__],args)
         if args.command in ('coverage','report'):
             return reporting.command(sys.modules[__name__],args)
         if args.command in ("sources","source-scan","source-init","source-validate"):

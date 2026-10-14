@@ -52,30 +52,33 @@ def finalize(api,conn):
         if not raw:
             api.schema_warning(conn,source,basefile,'creature_text','creature_text','missing broadcast base relationship',json.loads(entity),{'broadcast_id':bid})
             continue
-        broadcast=json.loads(raw[0]);english=broadcast.get('text')
-        if (broadcast.get('_evidence_incomplete') or not isinstance(english,str) or not english.strip()
-                or api.quest_identity_text(base.get('text')) != api.quest_identity_text(english)
+        broadcast=json.loads(raw[0])
+        # Preserve the legacy text proof; text1 is only an English fallback.
+        variant=next((field for field in ('text','text1')
+                      if isinstance(broadcast.get(field),str) and broadcast[field].strip()
+                      and api.quest_identity_text(base.get('text')) == api.quest_identity_text(broadcast[field])),None)
+        if (broadcast.get('_evidence_incomplete') or variant is None
                 or type(broadcast.get('languageid')) is not int or base.get('language') != broadcast['languageid']):
             api.schema_warning(conn,source,basefile,'creature_text','creature_text','broadcast English/language relationship mismatch',json.loads(entity),{'broadcast_id':bid})
             continue
         chain=[{'table':'creature_text','key':json.loads(entity),'field':'broadcasttextid','broadcast_id':bid,'file':basefile},
-               {'table':'broadcast_text','key':bid,'field':'text','file':raw[1]}]
-        base.setdefault('_english_provenance',{})['text']={'file':basefile,'table':'creature_text','relationship_chain':chain}
-        for locale,value,file,priority in conn.execute('SELECT locale,value,file,rank FROM invalid_values WHERE source=? AND kind=? AND entity=? AND field=?', (source,api.npc_text.BROADCAST_KIND,str(bid),'text')).fetchall():
+               {'table':'broadcast_text','key':bid,'field':variant,'file':raw[1]}]
+        base.setdefault('_english_provenance',{})['text']={'file':basefile,'table':'creature_text','broadcast_variant':variant,'relationship_chain':chain}
+        for locale,value,file,priority in conn.execute('SELECT locale,value,file,rank FROM invalid_values WHERE source=? AND kind=? AND entity=? AND field=?', (source,api.npc_text.BROADCAST_KIND,str(bid),variant)).fetchall():
             current=api.raw_record(conn,source,'creature_text',entity,locale)
             values=dict(current[0]) if current else {}
             if values.get('text') not in (None,''):continue
             values['text']=value
-            values.setdefault('_provenance',{})['text']={'file':file,'table':'broadcast_text_locale','adapter':'broadcast-backed',
-                'relationship_chain':chain+[{'table':'broadcast_text_locale','key':bid,'field':'text','locale':locale,'file':file}]}
+            values.setdefault('_provenance',{})['text']={'file':file,'table':'broadcast_text_locale','adapter':'broadcast-backed','broadcast_variant':variant,
+                'relationship_chain':chain+[{'table':'broadcast_text_locale','key':bid,'field':variant,'locale':locale,'file':file}]}
             api.persist_locale(conn,source,'creature_text',entity,locale,values,file,max(rank,priority),'broadcast_text_locale')
         for locale,encoded_values,file,priority in conn.execute('SELECT locale,fields,file,rank FROM records WHERE source=? AND kind=? AND entity=? ORDER BY locale',(source,api.npc_text.BROADCAST_KIND,str(bid))).fetchall():
-            value=json.loads(encoded_values).get('text')
+            value=json.loads(encoded_values).get(variant)
             if value in (None,''):continue
             current=api.raw_record(conn,source,'creature_text',entity,locale)
             values=dict(current[0]) if current else {}
-            proof={'file':file,'table':'broadcast_text_locale','adapter':'broadcast-backed','relationship_chain':chain+[
-                {'table':'broadcast_text_locale','key':bid,'field':'text','locale':locale,'file':file}]}
+            proof={'file':file,'table':'broadcast_text_locale','adapter':'broadcast-backed','broadcast_variant':variant,'relationship_chain':chain+[
+                {'table':'broadcast_text_locale','key':bid,'field':variant,'locale':locale,'file':file}]}
             if values.get('text') not in (None,''):
                 if api.translation_comparison_text(values['text'],locale)!=api.translation_comparison_text(value,locale):
                     values.setdefault('_adapter_conflicts',{})['text']={'direct':values['text'],'broadcast':value,'provenance':proof}
