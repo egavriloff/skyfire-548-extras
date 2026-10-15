@@ -796,3 +796,20 @@ Empty optional target English fields are not counted as missing translations.
 Unclassified engine blocks remain explicit rather than being guessed away.
 Reasons overlap: affected row/field counts are diagnostic impact, not predicted
 recoverable exports. Entity-filtered output adds top mismatch patterns.
+
+
+### Schema-proven quoted integers
+
+The streaming parser retains integer column types from supported `CREATE TABLE`
+statements. A single quoted decimal literal is converted only for a proven
+`TINYINT`, `SMALLINT`, `MEDIUMINT`, `INT`/`INTEGER`, or `BIGINT` column, within its
+signed/unsigned range. Text columns and unknown types remain strings. Whitespace,
+float/exponent/hex spellings and out-of-range values are rejected; expressions
+and variable values are not coerced. Unsupported table DDL invalidates type proof.
+
+`source_column_types` stores the schema context. `integer_literal_provenance`
+stores the original SQL literal, normalized integer, column/type, schema file,
+input file, row key and streaming pass. `inspect` displays this audit metadata
+when present and remains compatible with older indexes. These are local index metadata; source
+SQL and translation text are never rewritten. Existing identity and evidence-role
+checks still decide whether an indexed row is usable.

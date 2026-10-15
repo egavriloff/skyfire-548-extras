@@ -32,6 +32,7 @@ import db_script_string
 import achievement_reward
 import source_setup
 import analytics
+import sql_schema
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
 LOCALES = {
@@ -277,24 +278,29 @@ class Tokens:
         if c in "'\"`":
             quote = c
             value = []
+            raw = [quote]
             while True:
                 n = self._char()
+                raw.append(n)
                 if not n:
                     break
                 if n == "\\" and quote != "`":
                     esc = self._char()
+                    raw.append(esc)
                     if not esc:
                         break
                     value.append({"n": "\n", "r": "\r", "t": "\t", "0": "\0", "Z": "\x1a"}.get(esc, esc))
                 elif n == quote:
                     if self._peek() == quote:
                         self._char()
+                        raw.append(quote)
                         value.append(quote)
                     else:
                         break
                 else:
                     value.append(n)
-            return ("string" if quote != "`" else "word", "".join(value))
+            decoded = "".join(value)
+            return ("string", sql_schema.QuotedLiteral(decoded, "".join(raw))) if quote != "`" else ("word", decoded)
         if c in "<>!":
             operator = c
             if self._peek() == "=" or (c == "<" and self._peek() == ">"):
@@ -622,6 +628,7 @@ def db_connect(path: Path = INDEX) -> sqlite3.Connection:
     conn.execute("CREATE TABLE IF NOT EXISTS gossip_aux(source TEXT,entity TEXT,table_name TEXT,fields TEXT,file TEXT,PRIMARY KEY(source,entity,table_name))")
     conn.execute('CREATE TABLE IF NOT EXISTS sources(source TEXT PRIMARY KEY,role TEXT NOT NULL,alias_role TEXT)')
     evidence_roles.create_schema(conn)
+    sql_schema.create_schema(conn)
     skyfire_string.create_schema(conn)
     db_script_string.create_schema(conn)
     points_of_interest.create_schema(conn)
@@ -690,6 +697,12 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
     if name not in TARGET_TABLES:
         t.skip_raw_statement()
         return
+    if conn is not None:
+        # CREATE LIKE/AS SELECT must not inherit an unrelated earlier column proof.
+        conn.execute("DELETE FROM source_column_types WHERE source=? AND table_name=?", (source, name))
+        current = SCAN_CONTEXT.get()
+        if current:
+            getattr(current[1], "integer_plans", {}).pop(name, None)
     if t.get()[0] != "(":
         skip_statement(t)
         return
@@ -725,6 +738,11 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
             segment.append(x)
     schemas[(source, name)] = cols
     if conn is not None:
+        for segment in segments:
+            context = sql_schema.column_type(segment) if is_column(segment) else None
+            if context:
+                conn.execute("INSERT INTO source_column_types VALUES(?,?,?,?,?)",
+                             (source, name, segment[0][1].lower(), json.dumps(context, sort_keys=True), file))
         primary = []
         for part in segments:
             if [x[1].upper() for x in part[:2]] == ['PRIMARY', 'KEY']:
@@ -737,7 +755,11 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
 def literal_tuple(t: Tokens, *, defer_unresolved=False) -> list[object]:
     # Deferred cells are never persisted; INSERT dependency classification owns them.
     def value(expression):
-        try:return sql_value(expression,t.variables)
+        try:
+            value = sql_value(expression,t.variables)
+            if len(expression) == 1 and expression[0][0] == "string":
+                return sql_schema.QuotedLiteral(value, getattr(expression[0][1], "literal", None))
+            return value
         except UnresolvedVariableError as exc:
             if not defer_unresolved:raise
             return UnresolvedCell(tuple(expression),str(exc))
@@ -801,7 +823,7 @@ def sql_value(expr: list[tuple[str, str]], variables: dict[str, object] | None =
     if len(expr) == 1:
         kind, val = expr[0]
         if kind == "string":
-            return val
+            return str(val)
         if val.startswith("@"):
             if re.fullmatch(r"@[A-Za-z_][A-Za-z_0-9]*[+*\-].+",val):
                 return integer_expression(val,variables or {})
@@ -1244,6 +1266,12 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
             parser_warning(conn, source, file, f'REFERENCE LOCALE {table}: missing schema/columns')
         skip_statement(t)
         return
+    integer_plans = getattr(t, "integer_plans", None)
+    if integer_plans is None:
+        t.integer_plans = integer_plans = {}
+    if table not in integer_plans:
+        integer_plans[table] = sql_schema.plan(conn, source, table)
+    integer_types = integer_plans[table]
     reference_plan = None
     if source != 'target' and table in REFERENCE_LOCALE_TABLES and table not in INLINE_STRING_TABLES:
         try:
@@ -1264,7 +1292,10 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                     prefix = t.get()
                     unresolved_prefix = None
                     try:
-                        key_value = int(sql_value([prefix], t.variables))
+                        prefix_value = (sql_schema.QuotedLiteral(prefix[1], getattr(prefix[1], 'literal', None))
+                                        if prefix[0] == 'string' else sql_value([prefix], t.variables))
+                        prefix_value, _ = sql_schema.literal(prefix_value, integer_types.get(cols[0]))
+                        key_value = prefix_value if type(prefix_value) is int else None
                     except UnresolvedVariableError as exc:
                         unresolved_prefix=UnresolvedCell((prefix,),str(exc));key_value=None
                     except (ValueError, TypeError):
@@ -1279,7 +1310,11 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         comma2 = t.get()
                         second_value = None
                         try:
-                            second_value = int(sql_value([second], t.variables))
+                            second_value = (sql_schema.QuotedLiteral(second[1], getattr(second[1], 'literal', None))
+                                            if second[0] == 'string' else sql_value([second], t.variables))
+                            second_value, _ = sql_schema.literal(second_value, integer_types.get(cols[1]))
+                            if type(second_value) is not int:
+                                raise ValueError('composite key has no integer schema proof')
                             candidate_key = json.dumps((key_value, second_value))
                         except UnresolvedVariableError:
                             raise
@@ -1301,7 +1336,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         vals_prefix = [(prefix[0], prefix[1]), (second[0], second[1])]
                         # Reconstruct values by parsing the remaining tuple and prepend key columns.
                         rest = literal_tuple(t,defer_unresolved=True)
-                        vals = [sql_value([vals_prefix[0]], t.variables), sql_value([vals_prefix[1]], t.variables)] + rest
+                        vals = [sql_schema.QuotedLiteral(x[1], getattr(x[1], "literal", None)) if x[0] == "string" else sql_value([x], t.variables) for x in vals_prefix] + rest
                     elif key_value is None or json.dumps(key_value) not in candidates:
                         t.skip_raw_tuple()
                         sep = t.get()
@@ -1315,7 +1350,7 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                     else:
                         comma = t.get()
                         rest = literal_tuple(t,defer_unresolved=True)
-                        vals = [sql_value([prefix], t.variables)] + rest
+                        vals = [sql_schema.QuotedLiteral(prefix[1], getattr(prefix[1], "literal", None)) if prefix[0] == "string" else sql_value([prefix], t.variables)] + rest
                 else:
                     vals = literal_tuple(t,defer_unresolved=True)
             else:
@@ -1335,6 +1370,17 @@ def parse_insert(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                         if sep[0] in (';','eof'):return
                         raise UnresolvedVariableError('Unknown-key INSERT has unsupported state-changing suffix: '+sep[1])
                     row={c:v for c,v in row.items() if not isinstance(v,UnresolvedCell)}
+                try:
+                    vals, integer_changes = sql_schema.normalize_row(cols, vals, integer_types)
+                except sql_schema.InvalidIntegerLiteral as exc:
+                    schema_warning(conn, source, file, table, (table_info(table, source) or (locale_table_kind(table) or "base", None))[0],
+                                   str(exc) + "; row rejected", row=[repr(v) if isinstance(v, UnresolvedCell) else v for v in vals])
+                    sep = t.get()
+                    if sep[0] == ",":
+                        continue
+                    return
+                row = {c: v for c, v in zip(cols, vals) if not isinstance(v, UnresolvedCell)}
+                sql_schema.save(conn, source, table, row, file, phase, integer_changes)
                 if phase == 'entities' and table in points_of_interest.GOSSIP:
                     points_of_interest.persist_relationship(sys.modules[__name__],conn,source,table,row,file,rank)
                 if table in INLINE_STRING_TABLES:
@@ -1457,6 +1503,7 @@ def scan_file(conn: sqlite3.Connection, source: str, path: Path, member: str | N
                 if token[0] == "eof":
                     break
                 t.current_table = None
+                t.integer_statement_changes = {}
                 t.skipped_unprovable_insert = False
                 t.capture_context = True
                 t.context_head = [token[1][:96]]
@@ -1472,6 +1519,20 @@ def scan_file(conn: sqlite3.Connection, source: str, path: Path, member: str | N
                     parse_update(t, source, file, conn, phase)
                 elif word == "SET":
                     parse_set(t)
+                elif word in ('ALTER', 'DROP', 'RENAME'):
+                    # Unsupported DDL invalidates type proof rather than guessing the new layout.
+                    ddl = statement_tokens(t)
+                    if ddl and ddl[0][1].upper() in ('TABLE', 'TEMPORARY'):
+                        names = {value.lower() for kind, value in ddl if kind == 'word'}
+                        for name in names:
+                            conn.execute('DELETE FROM source_column_types WHERE source=? AND table_name=?', (source, name))
+                            getattr(t, 'integer_plans', {}).pop(name, None)
+                if t.integer_statement_changes:
+                    sql_schema.save(conn, source, t.current_table,
+                                    {col: notes[0]['normalized_integer'] if len(notes) == 1 else [note['normalized_integer'] for note in notes]
+                                     for col, notes in t.integer_statement_changes.items()},
+                                    file, phase, {col: notes[0] if len(notes) == 1 else notes
+                                                  for col, notes in t.integer_statement_changes.items()})
                 # Index commits in manageable batches.
                 if conn.total_changes and conn.total_changes % 50000 < 500:
                     conn.commit()
@@ -1569,7 +1630,7 @@ def integer_expression(text: str, variables: dict[str, object]) -> int:
 def assignment_value(expr: list[tuple[str, str]], variables: dict[str, object]) -> object:
     """Evaluate typed literals/copies or bounded deterministic integer arithmetic."""
     if len(expr) == 1 and expr[0][0] == 'string':
-        return expr[0][1]
+        return str(expr[0][1])
     if any(token[0] == 'string' for token in expr):
         raise ValueError('unsupported string expression in SQL variable assignment')
     combined = ' '.join(token[1] for token in expr)
@@ -1663,6 +1724,28 @@ def table_info(table: str, source: str | None = None) -> tuple[str, str] | None:
     return None
 
 
+def schema_sql_value(expression, variables, column):
+    """Use the active statement's proven column type, never a key-name heuristic."""
+    value = sql_value(expression, variables)
+    current = SCAN_CONTEXT.get()
+    if not current or len(expression) != 1 or expression[0][0] != 'string':
+        return value
+    t = current[1]
+    conn, source, file, phase = t.assignment_context
+    table = getattr(t, 'current_table', None)
+    plans = getattr(t, 'integer_plans', None)
+    if plans is None:
+        t.integer_plans = plans = {}
+    if table not in plans:
+        plans[table] = sql_schema.plan(conn, source, table)
+    value, detail = sql_schema.literal(
+        sql_schema.QuotedLiteral(value, getattr(expression[0][1], 'literal', None)),
+        plans[table].get(column))
+    if detail:
+        t.integer_statement_changes.setdefault(column, []).append(detail)
+    return value
+
+
 def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variables: dict[str, object]) -> tuple[str, list[object]]:
     # Deliberately restricted, parameterized subset: equality, IN, BETWEEN, AND.
     depth = 0
@@ -1704,7 +1787,7 @@ def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variab
                 values = []
                 while tokens[pos][0] != ")":
                     if tokens[pos][0] != ",":
-                        values.append(sql_value([tokens[pos]], variables))
+                        values.append(schema_sql_value([tokens[pos]], variables, columns[len(values)][1].lower()))
                     pos += 1
                 if len(values) != len(columns):
                     raise ValueError("неполный tuple")
@@ -1748,16 +1831,16 @@ def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variab
             pos += 1
         elif op in ("=", "<>", "!=", "<", ">", "<=", ">="):
             fragments.append(expression + op + "?")
-            value = sql_value([tokens[pos]], variables)
+            value = schema_sql_value([tokens[pos]], variables, col)
             if kind == 'quest_objective' and col == 'locale' and isinstance(value, int):
                 value = next((code for code, n in LOCALES.items() if n == value), value)
             params.append(value)
             pos += 1
         elif op == "BETWEEN":
-            low = sql_value([tokens[pos]], variables)
+            low = schema_sql_value([tokens[pos]], variables, col)
             if tokens[pos + 1][1].upper() != "AND":
                 raise ValueError("неполный BETWEEN")
-            high = sql_value([tokens[pos + 2]], variables)
+            high = schema_sql_value([tokens[pos + 2]], variables, col)
             fragments.append(expression + " BETWEEN ? AND ?")
             params.extend([low, high])
             pos += 3
@@ -1767,7 +1850,7 @@ def predicate_sql(tokens: list[tuple[str, str]], kind: str, storage: str, variab
             pos += 1
             values = []
             while tokens[pos][0] != ")":
-                values.append(sql_value([tokens[pos]], variables))
+                values.append(schema_sql_value([tokens[pos]], variables, col))
                 pos += 1
                 if tokens[pos][0] == ",":
                     pos += 1
@@ -2194,7 +2277,7 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
                 assert_resolved_dependencies(expression,t.variables)
                 if len(expression) != 1 and not re.fullmatch(r"[-+]?\d+\.\d+", "".join(token[1] for token in expression)):
                     raise ValueError("неподдерживаемое выражение SET")
-                assignments[part[0][1].lower()] = sql_value(expression, t.variables)
+                assignments[part[0][1].lower()] = schema_sql_value(expression, t.variables, part[0][1].lower())
         if not relevant:
             return  # Gameplay metadata is intentionally outside this index.
         assert_resolved_dependencies(tokens[where_pos+1:],t.variables)
@@ -2714,6 +2797,12 @@ def command_inspect(args: argparse.Namespace) -> int:
         for source in ("target", *all_reference_sources(conn)):
             base = base_entity(conn, source, kind, key)
             print(f"  {source} base: {json.dumps(base, ensure_ascii=False) if base else 'нет'}")
+            tables = {ALL_SPECS[kind]['target_entity']}
+            tables.update(row[0] for row in conn.execute('SELECT DISTINCT table_name FROM record_origins WHERE source=? AND kind=? AND entity=?', (source, kind, key)))
+            for table in sorted(tables):
+                normalizations = sql_schema.inspect_provenance(conn, source, table, key)
+                if normalizations:
+                    print(f"  {source} integer_literal_provenance [{table}]: {json.dumps(normalizations, ensure_ascii=False, sort_keys=True)}")
         for locale in locales:
             if locale not in LOCALES:
                 print(f"  {locale}: UNSUPPORTED (неизвестная локаль)")
