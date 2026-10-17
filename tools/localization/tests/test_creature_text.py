@@ -33,7 +33,7 @@ class CreatureTextTests(unittest.TestCase):
         self.assertIn('`entry`,`groupid`,`id`,`text_loc8`','\n'.join(sql));self.assertIn('(197,0,0,','\n'.join(sql))
         self.assertEqual(e['fields']['text']['provenance']['source-a']['adapter'],'direct')
     def test_wide_group_alias(self):
-        self.scan('source-a',"INSERT INTO locales_creature_text(entry,text_group,id,text_loc8,text_female_loc8,VerifiedBuild) VALUES(197,0,0,'Можешь идти.','Женский вариант',123);")
+        self.scan('source-a',"INSERT INTO locales_creature_text(entry,text_group,id,text_loc8,text_female_loc8,VerifiedBuild) VALUES(197,0,0,'Можешь идти, $N.','Женский вариант',123);")
         self.assertTrue(self.decide()[1])
     def broadcast(self,english=None,language=0):
         self.scan('source-a',"INSERT INTO creature_text(CreatureID,GroupID,ID,Text,Type,Language,Probability,Emote,Duration,Sound,BroadcastTextID,TextRange) VALUES(197,0,0,"+l.sql_quote(self.base['text'])+",13,0,100,113,0,0,999,0);"
@@ -60,15 +60,15 @@ class CreatureTextTests(unittest.TestCase):
         for field in (*creature_text.STRUCT,'textrange'):
             with self.subTest(field=field):
                 l.persist_entity(self.c,'source-a','creature_text',{**self.base,field:7},'changed.sql',21)
-                self.locale('source-a','Можешь идти');self.assertFalse(self.decide()[1])
+                self.locale('source-a','Можешь идти, $N');self.assertFalse(self.decide()[1])
     def test_missing_structure_rejected(self):
         b=dict(self.base);del b['emote'];l.persist_entity(self.c,'source-a','creature_text',b,'bad.sql',21)
-        self.locale('source-a','Можешь идти');self.assertFalse(self.decide()[1])
+        self.locale('source-a','Можешь идти, $N');self.assertFalse(self.decide()[1])
     def test_supplemental_only_missing(self):
-        self.locale('custom-reference-42','Можешь идти');e,sql=self.decide();self.assertTrue(sql)
+        self.locale('custom-reference-42','Можешь идти, $N');e,sql=self.decide();self.assertTrue(sql)
         self.assertEqual(e['fields']['text']['decision_origin'],'supplemental')
-        self.locale('source-a','Первичный перевод');e,sql=self.decide()
-        self.assertIn('Первичный перевод','\n'.join(sql));self.assertNotIn('Можешь идти','\n'.join(sql))
+        self.locale('source-a','Первичный перевод $N');e,sql=self.decide()
+        self.assertIn('Первичный перевод $N','\n'.join(sql));self.assertNotIn('Можешь идти, $N','\n'.join(sql))
     def test_primary_conflict_not_resolved(self):
         self.locale('source-a','Один');self.locale('source-b','Другой');self.locale('custom-reference-42','Один')
         self.assertEqual(self.decide()[0]['status'],'CONFLICT');self.assertFalse(self.decide()[1])
@@ -96,18 +96,18 @@ class CreatureTextTests(unittest.TestCase):
         self.scan('source-a',"DELETE FROM creature_text_locale WHERE CreatureID=197 AND GroupID=0 AND ID=0;")
         self.assertIsNone(l.get_record(self.c,'source-a','creature_text',self.key,'ruRU'))
     def test_deterministic_decision(self):
-        self.locale('source-a','Можешь идти');self.assertEqual(self.decide(),self.decide())
+        self.locale('source-a','Можешь идти, $N');self.assertEqual(self.decide(),self.decide())
 
     def test_target_wide_and_base_updates(self):
         self.scan('target',"INSERT INTO locales_creature_text(entry,groupid,id,text_loc8) VALUES(197,0,0,'Существующий');")
-        self.locale('source-a','Можешь идти');self.assertFalse(self.decide()[1])
+        self.locale('source-a','Можешь идти, $N');self.assertFalse(self.decide()[1])
         self.scan('source-a',"UPDATE creature_text SET emote=7 WHERE entry=197 AND groupid=0 AND id=0;")
         self.assertEqual(l.base_entity(self.c,'source-a','creature_text',self.key)['emote'],7)
     def test_unsupported_identity_update_blocks(self):
         self.scan('source-a',"UPDATE creature_text SET emote=emote+1 WHERE entry=197 AND groupid=0 AND id=0;")
-        self.locale('source-a','Можешь идти');self.assertFalse(self.decide()[1])
+        self.locale('source-a','Можешь идти, $N');self.assertFalse(self.decide()[1])
     def test_sql_review_validator_composite(self):
-        self.locale('source-a','Можешь идти');line=self.decide()[1][-1]
+        self.locale('source-a','Можешь идти, $N');line=self.decide()[1][-1]
         l.publishing.validate_statement(line,'creature_text','locales_creature_text',['entry','groupid','id','text_loc8'],'ruRU',l.SPECS,l.LOCALES)
     def test_cli_choices_and_composite_ranges(self):
         args=l.parser().parse_args(['inspect','creature_text','197,0,0','--locale','ruRU'])
@@ -121,7 +121,7 @@ class CreatureTextTests(unittest.TestCase):
             key=l.entity_key('creature_text',arg)
             l.persist_entity(self.c,'target','creature_text',{**self.base,'id':json.loads(key)[2]},'base.sql',20)
             l.persist_entity(self.c,'source-a','creature_text',{**self.base,'id':json.loads(key)[2]},'base.sql',20)
-            self.locale('source-a','Можешь идти',key)
+            self.locale('source-a','Можешь идти, $N',key)
         self.c.commit()
         a=self.root/'review-a';b=self.root/'review-b'
         first=l.bulk_export(self.c,['creature_text'],'ruRU',a)
@@ -146,14 +146,17 @@ class CreatureTextTests(unittest.TestCase):
             for text in texts:
                 with self.subTest(adapter=adapter,text=text):
                     self.c.execute("DELETE FROM records WHERE kind='creature_text' AND entity=?",(self.key,))
+                    english = ('Taste blade, $N! %s $n.' if '$N' in text else 'Taste blade, mongrel!')
+                    for source in ('target','source-a','source-b','custom-reference-42'):
+                        l.persist_entity(self.c,source,'creature_text',{**self.base,'text':english},'base.sql',30)
                     quoted=l.sql_quote(text)
                     if adapter=='row':
                         sql=f"INSERT INTO creature_text_locale(CreatureID,GroupID,ID,Locale,Text) VALUES(68,0,0,'ruRU',{quoted});"
                     elif adapter=='wide':
                         sql=f"INSERT INTO locales_creature_text(entry,groupid,id,text_loc8) VALUES(68,0,0,{quoted});"
                     else:
-                        sql=("INSERT INTO creature_text(CreatureID,GroupID,ID,Text,Type,Language,Probability,Emote,Duration,Sound,BroadcastTextID) VALUES(68,0,0,'Taste blade, mongrel!',13,0,100,113,0,0,999);"
-                             +"INSERT INTO broadcast_text(ID,LanguageID,Text,Text1) VALUES(999,0,'Taste blade, mongrel!','');"
+                        sql=(f"INSERT INTO creature_text(CreatureID,GroupID,ID,Text,Type,Language,Probability,Emote,Duration,Sound,BroadcastTextID) VALUES(68,0,0,{l.sql_quote(english)},13,0,100,113,0,0,999);"
+                             +f"INSERT INTO broadcast_text(ID,LanguageID,Text,Text1) VALUES(999,0,{l.sql_quote(english)},'');"
                              +f"INSERT INTO broadcast_text_locale(ID,locale,Text,Text1) VALUES(999,'ruRU',{quoted},'');")
                     self.scan('source-a',sql)
                     indexed=l.raw_record(self.c,'source-a','creature_text',self.key,'ruRU')[0]['text']
@@ -208,7 +211,7 @@ class CreatureTextTests(unittest.TestCase):
         self.assertIsNone(self.c.execute("SELECT 1 FROM parser_diagnostics WHERE reason='ambiguous broadcast English relationship'").fetchone())
 
     def test_both_matching_variants_with_different_locales_use_text(self):
-        self.variant_broadcast(self.base['text'],self.base['text'],'Первый перевод','Другой перевод')
+        self.variant_broadcast(self.base['text'],self.base['text'],'Первый перевод $N','Другой перевод $N')
         entry,sql=self.decide();self.assertTrue(sql)
         self.assertIn('Первый перевод','\n'.join(sql));self.assertNotIn('Другой перевод','\n'.join(sql))
         self.assertEqual(entry['fields']['text']['provenance']['source-a']['broadcast_variant'],'text')
@@ -249,8 +252,8 @@ class CreatureTextTests(unittest.TestCase):
         entry,sql=self.decide();self.assertTrue(sql)
         self.assertEqual(entry['fields']['text']['decision_origin'],'supplemental')
         self.assertEqual(entry['fields']['text']['provenance']['custom-reference-42']['broadcast_variant'],'text1')
-        self.locale('source-a','Первичный перевод')
-        self.assertIn('Первичный перевод','\n'.join(self.decide()[1]))
+        self.locale('source-a','Первичный перевод $N')
+        self.assertIn('Первичный перевод $N','\n'.join(self.decide()[1]))
         self.assertNotIn('Можешь идти, $N.','\n'.join(self.decide()[1]))
 
     def test_text1_invalid_locale_is_not_exported(self):

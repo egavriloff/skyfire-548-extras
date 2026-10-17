@@ -332,6 +332,18 @@ match; target schema has no range and defaults to normal (zero). Additional
 structural fields are compared when available on both sides. `$N/$n` remains
 strict here; the quest.details exception does not apply to creature speech.
 
+After identity and consensus succeed, a creature-speech-specific semantic token
+validator checks the selected translation. It preserves nested declension and
+proved gender/newline operations rather than comparing literal token sets.
+`BLOCK` rejects missing, added or replaced referent operations and malformed
+proved grammar. `UNKNOWN` retains the existing export decision while recording
+explicit diagnostics (including case-operation differences, unproved context or
+processing order). `$N/$n` English identity remains strict. This validator does
+not select preferred sources or let supplemental evidence replace a blocked
+primary result. Review reports, inspect/compare and gaps expose `token_validation`
+with status, reason, operations and nested syntax; raw text and accepted SQL are
+unchanged. Published SQL receives no additional per-row comments.
+
 Each line is independent: a conflict in one line does not block another line of
 the same creature. PRIMARY/SUPPLEMENTAL rules, confirmed English fallback
 rejection, raw text preservation and empty-target protection apply unchanged.

@@ -277,11 +277,14 @@ def entry_reasons(api,conn,kind,key,entry):
     for field,detail in entry['fields'].items():
         if kind=='quest' and field.startswith('objective:'):continue
         status=detail['status'];reason=str(detail.get('reason',''))
+        token_proof=detail.get('token_validation',{})
+        if token_proof.get('status') in ('BLOCK','UNKNOWN'):
+            results.extend((field,r,None) for r in token_proof.get('reasons',[token_proof.get('reason','token_contract:unknown_grammar')]))
         if status=='MISSING' and (not target or target.get(field) not in (None,'')):results.append((field,'missing_translation',None))
         elif status=='AMBIGUOUS':results.append((field,'ambiguous_mapping',None))
         elif status=='CONFLICT':results.append((field,'translation_conflict',None))
         elif status=='UNSUPPORTED':
-            specific=[]
+            specific=[(r,None) for r in token_proof.get('reasons',[]) if token_proof.get('status')=='BLOCK']
             if entry.get('identity_failed'):specific.extend(structural)
             if entry.get('identity_failed') and not structural and not any(api.base_entity(conn,s,kind,key) for s in api.reference_sources(conn)):specific.append(('missing_base_identity',None))
             if kind=='npc_text':

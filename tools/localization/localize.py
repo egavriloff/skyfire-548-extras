@@ -25,6 +25,7 @@ import reporting
 import evidence_roles
 import npc_text
 import creature_text
+import creature_text_tokens
 import page_text
 import points_of_interest
 import skyfire_string
@@ -2823,6 +2824,10 @@ def command_inspect(args: argparse.Namespace) -> int:
                         print(f"  {source} enUS: нет индексированной базовой сущности")
                 else:
                     print(f"  {source} {locale}: нет данных")
+            if kind == 'creature_text' and locale != 'enUS':
+                entry, _ = bulk_decision(conn, kind, key, locale)
+                if 'token_validation' in entry:
+                    print('  token_validation: ' + json.dumps(entry['token_validation'], ensure_ascii=False, sort_keys=True))
     return 0
 
 
@@ -3247,8 +3252,11 @@ def bulk_decision(conn: sqlite3.Connection, kind: str, entity: str, locale: str,
         return achievement_reward.decide(sys.modules[__name__],conn,entity,locale)
     if kind == 'points_of_interest':
         return points_of_interest.decide(sys.modules[__name__],conn,entity,locale)
-    return evidence_roles.decide(sys.modules[__name__], conn, kind, entity, locale,
-                                 allow_single_identity=allow_single_identity, allow_verified_aliases=allow_verified_aliases)
+    entry, sql = evidence_roles.decide(sys.modules[__name__], conn, kind, entity, locale,
+                                       allow_single_identity=allow_single_identity, allow_verified_aliases=allow_verified_aliases)
+    if kind == 'creature_text' and locale != 'enUS':
+        return creature_text_tokens.apply(sys.modules[__name__], conn, entity, entry, sql)
+    return entry, sql
 
 
 def compare_value(conn, kind, entity, locale, field, **kwargs):
@@ -3262,7 +3270,7 @@ def compare_value(conn, kind, entity, locale, field, **kwargs):
         status, detail = _primary_compare_value(conn, kind, entity, locale, field, **kwargs)
         evidence_roles._annotate(detail, metadata)
         return status, detail
-    if locale == 'enUS' or not evidence_roles.sources(conn, 'supplemental'):
+    if locale == 'enUS' or (kind != 'creature_text' and not evidence_roles.sources(conn, 'supplemental')):
         metadata = evidence_roles.validate(conn)
         status, detail = _primary_compare_value(conn, kind, entity, locale, field)
         evidence_roles._annotate(detail, metadata)
