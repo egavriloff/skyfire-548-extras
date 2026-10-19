@@ -51,9 +51,10 @@ def finalize(api, conn):
                     "SELECT locale,fields,file FROM records WHERE source=? AND kind='page_text' AND entity=?",
                     (source, json.dumps(entry))).fetchall():
                 values = json.loads(encoded)
-                values.setdefault('_provenance', {})['text'] = {
-                    'file': localefile, 'table': api.record_table(conn, source, 'page_text', json.dumps(entry), locale),
-                    'adapter': 'direct', 'relationship_chain': relationships}
+                proof = values.setdefault('_provenance', {}).setdefault('text', {})
+                proof.setdefault('file', localefile)
+                proof.setdefault('table', api.record_table(conn, source, 'page_text', json.dumps(entry), locale))
+                proof.update(adapter='direct', relationship_chain=relationships)
                 conn.execute("UPDATE records SET fields=? WHERE source=? AND kind='page_text' AND entity=? AND locale=?",
                              (json.dumps(values, ensure_ascii=False), source, json.dumps(entry), locale))
 

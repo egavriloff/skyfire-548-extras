@@ -825,3 +825,29 @@ input file, row key and streaming pass. `inspect` displays this audit metadata
 when present and remains compatible with older indexes. These are local index metadata; source
 SQL and translation text are never rewritten. Existing identity and evidence-role
 checks still decide whether an indexed row is usable.
+
+
+## Literal UPDATE-only locale observations
+
+For reference `page_text` and `npc_text` locale tables, explicit literal UPDATEs
+can supply translation-corpus observations even without preceding seed rows.
+This records translation intent; it does not claim that executing UPDATE on an
+empty SQL table creates a database row. Only complete equality selectors and
+known ruRU fields are admitted. Literal strings, integers, NULL, and already
+resolved scalar variables are supported; joins, functions, expressions, ranges,
+OR and IN selectors cannot create these observations. Existing SQL-state update
+handling remains separate.
+
+Canonical adapter keys keep their existing mapping. The wide NPC `entry -> id`
+alias additionally requires source DDL proving locale `PRIMARY KEY(entry)`, base
+`PRIMARY KEY(id)`, and integer types on both keys. Schema evidence must already be available at the UPDATE
+in the selected corpus/index; the adapter never searches unselected files for it.
+Missing proof produces a diagnostic, not a guessed join or a base identity.
+
+Per-field provenance marks `observation_origin=explicit_update` and includes the
+raw literals, normalized key/value, schema alias, source role/config fingerprint,
+file and indexed-command ordinal. Canonical row-locale precedence, source ranks
+and statement ordering remain deterministic, with one vote per source. English
+identity, page chains, NPC option/variant structure, target protection and all
+PRIMARY/SUPPLEMENTAL checks still run downstream. Other entities are not enabled
+for UPDATE-only observation creation by this adapter.

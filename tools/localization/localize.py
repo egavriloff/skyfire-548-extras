@@ -34,6 +34,7 @@ import achievement_reward
 import source_setup
 import analytics
 import sql_schema
+import explicit_updates
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
 LOCALES = {
@@ -1510,6 +1511,8 @@ def scan_file(conn: sqlite3.Connection, source: str, path: Path, member: str | N
                 t.context_head = [token[1][:96]]
                 t.context_tail.clear()
                 word = token[1].upper()
+                if word in ("CREATE", "INSERT", "REPLACE", "DELETE", "UPDATE", "SET", "ALTER", "DROP", "RENAME"):
+                    t.statement_index = getattr(t, "statement_index", 0) + 1
                 if word == "CREATE":
                     parse_create(t, source, file, schemas, conn)
                 elif word in ("INSERT", "REPLACE"):
@@ -2258,6 +2261,8 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
         return
     kind, storage = info
     if phase and phase != ("entities" if storage == "entities" else "locales"):
+        return
+    if storage == "records" and explicit_updates.observe(sys.modules[__name__], conn, source, file, table, tokens, t):
         return
     try:
         if not tokens or tokens[0][1].upper() != "SET":
