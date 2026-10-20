@@ -829,7 +829,7 @@ checks still decide whether an indexed row is usable.
 
 ## Literal UPDATE-only locale observations
 
-For reference `page_text`, `npc_text` and `points_of_interest` locale tables, explicit literal UPDATEs
+For reference `page_text`, `npc_text`, `points_of_interest` and `gossip_menu_option` locale tables, explicit literal UPDATEs
 can supply translation-corpus observations even without preceding seed rows.
 This records translation intent; it does not claim that executing UPDATE on an
 empty SQL table creates a database row. Only complete equality selectors and
@@ -892,3 +892,37 @@ so inspect/report output explains the existing adapter's key alias decision.
 Structural metadata does not establish semantic aliases: adapters must already
 know the mapping, and all English, structural, role, conflict and target-protection
 checks remain required. Schema metadata cannot create a missing base identity.
+
+
+### Composite UPDATE selectors
+
+The explicit UPDATE mechanism accepts complete scalar or composite logical keys.
+Every WHERE component must use an AND-only exact equality to a literal or an
+already resolved scalar variable. Component order does not affect key order.
+Missing components, duplicate selectors (including identical duplicates), extra
+predicates, ambiguous aliases, OR, IN, ranges and expressions cannot create an
+observation. Quoted integer components require declared integer types and bounds.
+
+Direct `locales_gossip_menu_option` uses schema-proven `(menu_id,id)` aliases for
+logical `(MenuID,OptionID)`. The source's locale and base table must both declare
+the complete integer PK. The generic selector helper also models row-based
+composite PKs with `locale`, but this entity enables new observations only for
+the legacy wide table; canonical row UPDATE execution keeps its existing behavior.
+The existing locale layout maps `option_text_loc8` and `box_text_loc8` to ruRU.
+The schema provides structural relationship evidence, never base English data.
+
+After the base pass, only these new direct UPDATE observations undergo admission:
+complete base rows, English proof for the actual localized field, the existing
+broadcast/text identity check, and matching integer option type/icon/NPC flag,
+action menu/POI, box coding/money. A failed admission is retained as invalid
+observation evidence with exact diagnostics and provenance; it cannot silently
+become usable translation evidence. This gate does not change the matching or
+evidence policy of existing INSERT/canonical representations. PRIMARY/SUPPLEMENTAL,
+conflict handling, target protection and explicit alias opt-ins remain unchanged.
+No unbound broadcast translations are imported by this adapter.
+
+Provenance includes ordered `key_columns`, `raw_key_literals`, `normalized_key`,
+`normalized_key_components`, both source-local schema proofs and per-field
+`identity_admission`. Equivalent INSERT/UPDATE representations remain one vote per
+source. Identical corpora in different sources do not establish independent
+lineage families. New entity adapters must be enabled separately.

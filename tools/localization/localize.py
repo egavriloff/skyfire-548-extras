@@ -2382,6 +2382,7 @@ def build_index(_: argparse.Namespace) -> int:
     creature_text.finalize(sys.modules[__name__],conn)
     page_text.finalize(sys.modules[__name__],conn)
     points_of_interest.finalize(sys.modules[__name__],conn)
+    explicit_updates.finalize(sys.modules[__name__],conn)
     conn.commit()
     print("Индекс построен:", INDEX)
     for source, count in counts.items():
