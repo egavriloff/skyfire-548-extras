@@ -829,7 +829,7 @@ checks still decide whether an indexed row is usable.
 
 ## Literal UPDATE-only locale observations
 
-For reference `page_text`, `npc_text`, `points_of_interest` and `gossip_menu_option` locale tables, explicit literal UPDATEs
+For reference `page_text`, `npc_text`, `points_of_interest`, `gossip_menu_option` and `gameobject` locale tables, explicit literal UPDATEs
 can supply translation-corpus observations even without preceding seed rows.
 This records translation intent; it does not claim that executing UPDATE on an
 empty SQL table creates a database row. Only complete equality selectors and
@@ -850,7 +850,9 @@ raw literals, normalized key/value, schema alias, source role/config fingerprint
 file and indexed-command ordinal. Canonical row-locale precedence, source ranks
 and statement ordering remain deterministic, with one vote per source. English
 identity, page chains, NPC option/variant structure, POI uniqueness/coordinates/relationships, target protection and all
-PRIMARY/SUPPLEMENTAL checks still run downstream. Other entities are not enabled
+PRIMARY/SUPPLEMENTAL checks still run downstream. Gameobject observations feed the
+existing locale-to-candidates-to-base pass order; they do not create base identity
+or bypass incomplete-evidence markers. Other entities are not enabled
 for UPDATE-only observation creation by this adapter.
 
 

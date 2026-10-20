@@ -2,7 +2,7 @@
 import json
 import re
 
-KINDS = {'page_text', 'npc_text', 'points_of_interest', 'gossip_menu_option'}
+KINDS = {'page_text', 'npc_text', 'points_of_interest', 'gossip_menu_option', 'gameobject'}
 
 # Logical component aliases already used by the base/reference locale adapters.
 # Schema proof, not these spellings alone, authorizes their use in UPDATE keys.
