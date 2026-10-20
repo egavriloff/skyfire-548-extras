@@ -35,6 +35,7 @@ import source_setup
 import analytics
 import sql_schema
 import explicit_updates
+import ai_fallback
 import schema_inputs
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
@@ -3460,6 +3461,19 @@ def command_publish(args: argparse.Namespace) -> int:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
+    for command in ('ai-export', 'ai-import', 'ai-validate', 'ai-coverage'):
+        q = sub.add_parser(command, help='Offline external AI fallback staging; never call a model')
+        q.add_argument('--locale', required=True, choices=('ruRU',))
+        if command in ('ai-export', 'ai-coverage'):
+            q.add_argument('entity_type', nargs='?', choices=ai_fallback.KINDS)
+        if command == 'ai-import':
+            q.add_argument('--input', required=True, help='External translation JSONL')
+            q.add_argument('--provenance', required=True, help='External generator/model/run identifier')
+            q.add_argument('--replace', action='store_true', help='Explicitly replace all staged AI responses')
+        if command == 'ai-validate':
+            q.add_argument('--write-sql', action='store_true', help='Generate unreviewed AI/custom SQL, never donor or published SQL')
+        if command == 'ai-coverage':
+            q.add_argument('--json', action='store_true')
     for command in ('coverage','report'):
         q=sub.add_parser(command,help='Read existing review coverage' if command=='coverage' else 'Read existing review metadata')
         q.add_argument('--locale',required=True,choices=tuple(code for code in LOCALES if code!='enUS'))
@@ -3515,6 +3529,8 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = parser().parse_args()
     try:
+        if args.command in ('ai-export', 'ai-import', 'ai-validate', 'ai-coverage'):
+            return ai_fallback.command(sys.modules[__name__], args)
         if args.command in ('source-contribution','gaps'):
             return analytics.command(sys.modules[__name__],args)
         if args.command in ('coverage','report'):

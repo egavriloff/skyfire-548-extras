@@ -928,3 +928,90 @@ Provenance includes ordered `key_columns`, `raw_key_literals`, `normalized_key`,
 `identity_admission`. Equivalent INSERT/UPDATE representations remain one vote per
 source. Identical corpora in different sources do not establish independent
 lineage families. New entity adapters must be enabled separately.
+
+
+## Offline AI fallback layer
+
+AI fallback is separate from donor evidence. These commands never call a model,
+register a reference, change donor decisions, connect to a live DB, approve or
+publish SQL. The initial scope is `quest`, `creature`, `gameobject`, `npc_text`
+and `creature_text`, for `ruRU` only. Quest objective descriptions and runtime
+string entities are not enabled for AI export in this first version.
+
+Only fields classified **MISSING** by the current donor decision engine are
+eligible, with an existing, complete target entity and proven authoritative
+English. Safe donor translations and nonempty target locale values take
+precedence. CONFLICT, AMBIGUOUS, UNSUPPORTED and opt-in alias cases are not AI
+fallback candidates. Creature/gameobject bundle conflicts remain blocked;
+quest/NPC conflicts remain field-level and are never selected or resolved.
+This deliberately does not fill identity-blocked donor coverage automatically.
+
+```sh
+python tools/localization/localize.py ai-export --locale ruRU
+# Optional entity selection (replaces the request ledger with this selection):
+python tools/localization/localize.py ai-export quest --locale ruRU
+```
+
+Requests are written to `.tmp/localization/ai/ruRU/requests.jsonl`, with a
+hash-bound `requests-manifest.json`. Each line contains:
+
+- `entity`, `key` (integer, or `[entry, groupid, id]` for creature_text), `field`;
+- `english`, copied directly from target English; `english_hash`, SHA-256 of
+  its exact UTF-8 bytes, including original whitespace and token case;
+- `context`, with locale, target identity/structure, English provenance and
+  target-context fingerprint;
+- `token_contract`, describing the validator and expected formatting operations.
+
+Translate externally. Return UTF-8 JSONL objects containing **only** `entity`,
+`key`, `field`, `translation`, `english_hash`. Echo identifiers and hashes from
+the requests; do not return SQL. Source and field names are case-sensitive.
+
+```sh
+python tools/localization/localize.py ai-import --locale ruRU --input responses.jsonl --provenance "external-generator/run-001"
+python tools/localization/localize.py ai-validate --locale ruRU
+python tools/localization/localize.py ai-validate --locale ruRU --write-sql
+python tools/localization/localize.py ai-coverage --locale ruRU
+python tools/localization/localize.py ai-coverage --locale ruRU --json
+```
+
+`ai-import` stages responses in `translations.jsonl` and records the external
+provenance label, input filename/hash and original translation hash. It does not
+accept them as usable translations. Exact duplicate submissions count once;
+different submissions for the same field/hash fail rather than select a winner.
+To explicitly replace the entire staged response set, use `ai-import --replace`.
+Invalid JSON, UTF-8, keys, fields and hashes fail before staging is written.
+Files are replaced atomically, with hash-bound manifests written last; an
+interrupted/mismatched artifact pair fails closed on subsequent use.
+
+`ai-validate` rechecks current target existence, raw English hash, target-context
+fingerprint, donor eligibility, target protection and formatting contracts. It
+writes `validation.json`, including every rejection and its provenance. Stale
+English/context, empty text, confirmed English fallback and invalid encoding or
+known mojibake are rejected without repair. No language detection is used.
+Only response CRLF/CR line endings are normalized to LF. Words, punctuation,
+case, tokens, whitespace and paragraph boundaries are otherwise not rewritten.
+
+Creature speech uses the existing semantic token validator; both BLOCK and
+UNKNOWN are rejected for this AI layer. NPC and quest use exact, case-sensitive
+WoW token and exact ordered printf contracts; `$N` and `$n` remain different. Lexical token escaping is preserved. Gender
+branches must remain well-formed. Unknown pipe/declension constructs require
+manual handling. Escaped percent/pipe literals and linebreak counts are checked.
+The runtime printf/WoW validator is reused without changing donor validators.
+Mechanical validity is not a guarantee of linguistic or game-context quality.
+
+With `--write-sql`, only VALID fields are generated under
+`.tmp/localization/ai/ruRU/custom/`, as separate per-entity SQL and `manifest.json`.
+The manifest binds SQL, requests, import hashes, original English, validation,
+external provenance and source-role/config metadata. Rejected fields remain
+listed; the command returns nonzero if any response is invalid. SQL guards both
+base English (binary comparison) and nonempty locale fields. All supported SQL
+files are regenerated, including empty ones, so revalidation removes stale
+statements. Repeating unchanged inputs produces byte-identical output.
+
+Review the custom SQL and manifest separately. Apply reviewed donor SQL before
+any reviewed AI layer; never apply an obsolete custom bundle after changing the
+index/donor review. Validation uses the existing index snapshot, not live DB
+state. The current `approve-review`/`publish` flow does not accept or merge this
+AI layer, and it never writes to `localizations/`. `ai-coverage` revalidates in
+memory and prints current eligible/imported/valid/invalid field counts without
+creating new artifacts. Keep all AI artifacts local and gitignored.

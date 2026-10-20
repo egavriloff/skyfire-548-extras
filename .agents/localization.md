@@ -43,6 +43,10 @@ workspace. SQL generation is not human review, DB import, startup or in-game
 verification. Preserve UTF-8, placeholders, escaping, provenance and deterministic
 ordering. Never silently choose a preferred conflicting translation.
 
+External AI fallback is an optional, separate offline layer documented in the
+toolkit README. It stages only MISSING target fields, never becomes a donor vote,
+and does not approve, publish or merge its custom SQL into donor bundles.
+
 ## Approve and publish
 
 After actual review of SQL and the complete report, record approve-review.
