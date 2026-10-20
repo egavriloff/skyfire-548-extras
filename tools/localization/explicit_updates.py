@@ -2,7 +2,7 @@
 import json
 import re
 
-KINDS = {'page_text', 'npc_text'}
+KINDS = {'page_text', 'npc_text', 'points_of_interest'}
 
 
 def literal(api, token, variables):
@@ -47,6 +47,8 @@ def key_column(api, conn, source, table, kind, where, wide):
     actual = next(iter(keys))
     schema = conn.execute('SELECT columns,primary_key,file FROM source_schemas WHERE source=? AND table_name=?',
                           (source, table)).fetchone()
+    if kind == 'points_of_interest' and not schema:
+        raise ValueError('points_of_interest UPDATE observation requires declared locale PK/column/type schema proof')
     proof = {'adapter_key': canonical, 'schema_file': schema[2] if schema else None}
     if actual != canonical and kind == 'page_text' and not wide and actual == 'id' and canonical == 'entry':
         proof.update(schema_alias={'id': 'entry'}, alias_proof='page_text canonical row adapter')
@@ -60,7 +62,10 @@ def key_column(api, conn, source, table, kind, where, wide):
         for name, column in ((table, 'entry'), (spec['target_entity'], 'id')):
             if column not in api.sql_schema.plan(conn, source, name):
                 raise ValueError('entry -> id requires integer column schema proof on both keys')
-        proof.update(schema_alias={'entry': 'id'}, base_schema_file=base[2])
+        proof.update(schema_alias={'entry': 'id'}, base_schema_file=base[2],
+                     alias_proof='npc_text adapter: locale PRIMARY KEY(entry) -> base PRIMARY KEY(id)')
+        base_proof = api.schema_inputs.proof(conn, source, spec['target_entity'], ['id'])
+        if base_proof:proof['base_schema_proof'] = base_proof
     if schema:
         if actual not in api.sql_schema.plan(conn, source, table):
             raise ValueError('declared entity key has no current integer type proof')
@@ -127,6 +132,8 @@ def observe(api, conn, source, file, table, tokens, lexer):
                 'normalized_key': key, 'locale': 'ruRU', 'locale_field': locale_column,
                 'raw_locale_literal': raw, 'normalized_locale_value': value,
                 'source_order_rank': api.rank_for(file), **schema_proof, **profile}
+            metadata = api.schema_inputs.proof(conn, source, table, [column, locale_column])
+            if metadata:notes[field]['schema_proof'] = metadata
     except (ValueError, StopIteration) as exc:
         api.schema_warning(conn, source, file, table, kind,
                            'explicit_update_not_observed: ' + str(exc),
@@ -140,7 +147,7 @@ def observe(api, conn, source, file, table, tokens, lexer):
                             (source, kind, entity, 'ruRU')).fetchone()
     if previous and previous[0] > rank:
         return True
-    if wide and existing and existing[2] == spec['source_table']:
+    if wide and kind != 'points_of_interest' and existing and existing[2] == spec['source_table']:
         # Match the existing canonical-row precedence for legacy wide representations.
         for field, value in values.items():
             if fields.get(field) != value:

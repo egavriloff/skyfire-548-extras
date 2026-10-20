@@ -829,7 +829,7 @@ checks still decide whether an indexed row is usable.
 
 ## Literal UPDATE-only locale observations
 
-For reference `page_text` and `npc_text` locale tables, explicit literal UPDATEs
+For reference `page_text`, `npc_text` and `points_of_interest` locale tables, explicit literal UPDATEs
 can supply translation-corpus observations even without preceding seed rows.
 This records translation intent; it does not claim that executing UPDATE on an
 empty SQL table creates a database row. Only complete equality selectors and
@@ -841,13 +841,54 @@ handling remains separate.
 Canonical adapter keys keep their existing mapping. The wide NPC `entry -> id`
 alias additionally requires source DDL proving locale `PRIMARY KEY(entry)`, base
 `PRIMARY KEY(id)`, and integer types on both keys. Schema evidence must already be available at the UPDATE
-in the selected corpus/index; the adapter never searches unselected files for it.
+from configured data or schema-only inputs; the adapter never searches unselected files for it.
+POI UPDATE observations additionally require declared locale PK/column/integer-key proof.
 Missing proof produces a diagnostic, not a guessed join or a base identity.
 
 Per-field provenance marks `observation_origin=explicit_update` and includes the
 raw literals, normalized key/value, schema alias, source role/config fingerprint,
 file and indexed-command ordinal. Canonical row-locale precedence, source ranks
 and statement ordering remain deterministic, with one vote per source. English
-identity, page chains, NPC option/variant structure, target protection and all
+identity, page chains, NPC option/variant structure, POI uniqueness/coordinates/relationships, target protection and all
 PRIMARY/SUPPLEMENTAL checks still run downstream. Other entities are not enabled
 for UPDATE-only observation creation by this adapter.
+
+
+## Explicit schema-only inputs
+
+A source may explicitly provide DDL outside its selected data corpus:
+
+```json
+{
+  "evidence_role": "supplemental",
+  "inputs": [{"path": "db/world.sql", "dataset_role": "world"}],
+  "schema_inputs": ["repo/sql/schema/world.sql"]
+}
+```
+
+`schema_inputs` accepts relative SQL/ZIP file paths or file globs under `repo/`
+or `db/`. Files are never discovered implicitly. Missing files, duplicate/overlapping
+schema selections, paths outside the source, unsupported archives and excluded
+paths fail validation. Global exclusions also apply inside ZIP archives; TODO
+inputs are not eligible for schema selection. `source-validate` displays resolved
+schema inputs with purpose `schema_only`. Existing configurations without this
+optional field retain their behavior. `source-init` preserves configured schema
+inputs separately from data choices.
+
+Indexing resolves both input sets before replacing the local index, then runs a
+metadata-only pass before either data pass. Only supported CREATE TABLE metadata
+is loaded: columns, SQL types and primary/composite keys. ALTER/DROP/RENAME are
+not executed; unsupported table DDL conservatively invalidates affected metadata.
+INSERT, REPLACE, UPDATE, DELETE, TRUNCATE, SET and all other payloads in schema
+files are ignored. Schema files never create base rows, locale observations,
+relationship evidence or source votes and are not counted as indexed data streams.
+Explicit data/schema overlap is rejected; legacy data discovery omits explicitly
+configured schema files. Inputs remain read-only.
+
+`schema_input_files` records stream hashes and config fingerprints;
+`source_schema_metadata` stores schema purpose, file, columns, PK and SQL types.
+UPDATE field provenance includes the relevant schema proof and config snapshot,
+so inspect/report output explains the existing adapter's key alias decision.
+Structural metadata does not establish semantic aliases: adapters must already
+know the mapping, and all English, structural, role, conflict and target-protection
+checks remain required. Schema metadata cannot create a missing base identity.

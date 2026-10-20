@@ -35,6 +35,7 @@ import source_setup
 import analytics
 import sql_schema
 import explicit_updates
+import schema_inputs
 WORKSPACE = ROOT / ".tmp" / "localization"
 INDEX = WORKSPACE / "index" / "localization-index.sqlite3"
 LOCALES = {
@@ -487,14 +488,14 @@ def source_definitions() -> dict[str, dict]:
                 continue
             config_file = directory / 'source.json'
             config = json.loads(config_file.read_text(encoding='utf-8')) if config_file.exists() else {}
-            if not isinstance(config, dict) or set(config) - {'alias_role', 'evidence_role', 'evidence_family', 'inputs', 'exclude'} or config.get('alias_role') not in (None, 'origin', 'corroborator'):
+            if not isinstance(config, dict) or set(config) - {'alias_role', 'evidence_role', 'evidence_family', 'inputs', 'exclude', 'schema_inputs'} or config.get('alias_role') not in (None, 'origin', 'corroborator'):
                 raise RuntimeError(f'Invalid optional evidence role configuration: {config_file}')
             source_setup.validate_family(config)
             if not isinstance(config.get('evidence_role'), str) or config['evidence_role'] not in evidence_roles.ROLES:
                 raise RuntimeError(f'{source}: source.json requires explicit evidence_role (primary, supplemental, code_schema): {config_file}')
             if config.get('alias_role') and config['evidence_role'] != 'primary':
                 raise RuntimeError(f'{source}: alias_role requires PRIMARY evidence')
-            if 'inputs' in config or 'exclude' in config:
+            if 'inputs' in config or 'exclude' in config or 'schema_inputs' in config:
                 source_setup.resolve_config(directory, config, SKIP_DIRS)
             result[source] = {'path': directory, 'role': 'reference', 'alias_role': config.get('alias_role'),
                               'evidence_role': config['evidence_role'], 'config_fingerprint': evidence_roles.fingerprint(config), 'config':config}
@@ -582,6 +583,15 @@ def active_files() -> list[tuple[str, Path, str | None]]:
     return sorted(result, key=order)
 
 
+def active_schema_files():
+    result = []
+    for source, definition in source_definitions().items():
+        config = definition.get('config', {})
+        for row in schema_inputs.resolve(definition['path'], config, SKIP_DIRS):
+            result.append((source, definition['path'] / row['path'], row.get('member')))
+    return tuple(result)
+
+
 def source_revision(source: str) -> str | None:
     # Do not report the parent workspace SHA as an upstream source revision.
     source_repo = ROOT / 'externals' / ('core' if source == 'target' else 'references/' + source) / 'repo'
@@ -631,6 +641,7 @@ def db_connect(path: Path = INDEX) -> sqlite3.Connection:
     conn.execute('CREATE TABLE IF NOT EXISTS sources(source TEXT PRIMARY KEY,role TEXT NOT NULL,alias_role TEXT)')
     evidence_roles.create_schema(conn)
     sql_schema.create_schema(conn)
+    schema_inputs.create_schema(conn)
     skyfire_string.create_schema(conn)
     db_script_string.create_schema(conn)
     points_of_interest.create_schema(conn)
@@ -693,6 +704,7 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
         t.unget(tok)
         return
     name = next_name(t)
+    t.current_table = name
     if not name:
         skip_statement(t)
         return
@@ -751,6 +763,7 @@ def parse_create(t: Tokens, source: str, file: str, schemas: dict[tuple[str, str
                 primary = [x[1].lower() for x in part[2:] if x[0] == 'word']
         conn.execute('INSERT OR REPLACE INTO source_schemas VALUES(?,?,?,?,?)',
                      (source, name, json.dumps(cols), json.dumps(primary), file))
+        schema_inputs.capture(sys.modules[__name__], conn, source, name, file, segments, primary, is_column)
     skip_statement(t)
 
 
@@ -2318,6 +2331,7 @@ def parse_update(t: Tokens, source: str, file: str, conn: sqlite3.Connection, ph
 
 def build_index(_: argparse.Namespace) -> int:
     sources = tuple(active_files())  # One immutable snapshot for both streaming passes.
+    schema_sources = active_schema_files()  # Validate before touching the existing index.
     for source, path, member in sources:
         if excluded_sql_input(path, member):
             raise RuntimeError(f"Excluded discovery input: source={source} file={path} member={member}; index untouched")
@@ -2331,6 +2345,7 @@ def build_index(_: argparse.Namespace) -> int:
     register_sources(conn)
     schemas: dict[tuple[str, str], list[str]] = {}
     counts = {s: 0 for s in (*all_reference_sources(conn), "target")}
+    schema_inputs.load(sys.modules[__name__], conn, schemas, schema_sources)
     # First pass indexes localized rows, avoiding the cost of decoding every base entity row.
     for source, path, member in sources:
         if not path.exists():

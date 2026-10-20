@@ -224,7 +224,15 @@ def variants(api, conn, source, key, locale):
     rows=list(conn.execute('SELECT fields,file,table_name,rank FROM poi_locale_variants WHERE source=? AND entity=? AND locale=? ORDER BY table_name,file',(source,key,locale)))
     if rows:
         rank=max(r[3] for r in rows)
-        return [{'value':json.loads(fs).get('icon_name'),'file':file,'table':table} for fs,file,table,n in rows if n==rank and json.loads(fs).get('icon_name') not in (None,'')]
+        result=[]
+        for encoded,file,table,n in rows:
+            fields=json.loads(encoded)
+            if n!=rank or fields.get('icon_name') in (None,''):continue
+            value={'value':fields['icon_name'],'file':file,'table':table}
+            proof=fields.get('_provenance',{}).get('icon_name')
+            if proof:value['observation_provenance']=proof
+            result.append(value)
+        return result
     rec=api.get_record(conn,source,KIND,key,locale)
     return [{'value':rec[0]['icon_name'],'file':rec[1],'table':rec[2]}] if rec and rec[0].get('icon_name') else []
 

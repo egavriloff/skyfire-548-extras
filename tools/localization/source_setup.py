@@ -68,12 +68,15 @@ def discover(root, skips):
             'inputs':inputs,'excluded':sorted(excluded),'unsupported_archives':sorted(unsupported,key=lambda row:row['path'])}
 
 def resolve_config(root,config,skips):
-    if not isinstance(config,dict) or set(config)-{'evidence_role','evidence_family','alias_role','inputs','exclude'}:
+    if not isinstance(config,dict) or set(config)-{'evidence_role','evidence_family','alias_role','inputs','exclude','schema_inputs'}:
         raise ValueError('Unsupported source.json keys/config')
     validate_family(config)
     if config.get('evidence_role') not in ROLES:raise ValueError('Invalid evidence_role')
     if config.get('alias_role') not in (None,'origin','corroborator') or (config.get('alias_role') and config['evidence_role']!='primary'):
         raise ValueError('Invalid alias_role/evidence_role combination')
+    import schema_inputs
+    schema_rows=schema_inputs.resolve(root,config,skips)
+    schema_keys={(str((Path(root)/r['path']).resolve()),r.get('member')) for r in schema_rows}
     inventory=discover(root,skips);root=Path(root).resolve()
     excludes=config.get('exclude',[])
     if not isinstance(excludes,list) or any(not isinstance(x,str) for x in excludes) or len(excludes)!=len(set(excludes)):
@@ -84,7 +87,7 @@ def resolve_config(root,config,skips):
     def excluded(row):return any(row['path']==x or row['path'].startswith(x+'/') for x in excludes)
     if 'inputs' not in config:
         if excludes:raise ValueError('exclude requires explicit inputs')
-        return [{**row,'dataset_role':'unknown'} for row in inventory['inputs']]
+        return [{**row,'dataset_role':'unknown'} for row in inventory['inputs'] if (str((root/row['path']).resolve()),row.get('member')) not in schema_keys]
     selected=config['inputs']
     if not isinstance(selected,list):raise ValueError('inputs must be an array')
     result=[];seen={};selections={}
@@ -107,6 +110,7 @@ def resolve_config(root,config,skips):
         for row in matches:
             if excluded(row):continue
             key=(row['path'],row.get('member'))
+            if (str((root/row['path']).resolve()),row.get('member')) in schema_keys:raise ValueError('Input selected for both data and schema_only: '+row['path'])
             if key in seen:
                 if seen[key]!=role:raise ValueError('Dataset role conflict for overlapping input: '+row['path'])
                 raise ValueError('Duplicate/overlapping resolved input: '+row['path'])
@@ -287,7 +291,16 @@ def wizard(api,root):
     role=choose('Evidence role (имя каталога не определяет доверие):',ROLES,ROLES.index(old['evidence_role']) if old.get('evidence_role') in ROLES else 1)
     # Unsupported archives are diagnostics, never selectable SQL trees.
     for archive in report.get('unsupported_archives',[]):print(archive['reason'])
-    choices=selectable_inputs(report)
+    import schema_inputs
+    schema_keys={(r['path'],r.get('member')) for r in schema_inputs.resolve(root,old,api.SKIP_DIRS)}
+    if schema_keys:print('Configured schema-only inputs are preserved separately and omitted from data choices.')
+    selectable={**report,'inputs':[r for r in report['inputs'] if (r['path'],r.get('member')) not in schema_keys]}
+    choices=selectable_inputs(selectable)
+    # A tree choice must not silently re-include omitted schema-only files.
+    for key,rows in list(choices.items()):
+        if key[1] is None and any(path==key[0] or path.startswith(key[0]+'/') for path,member in schema_keys):
+            del choices[key]
+            for row in rows:choices[(row['path'],row.get('member'))]=[row]
     keys=sorted(choices,key=lambda k:(k[0],k[1] or ''))
     try:old_resolved=resolve_config(root,old,api.SKIP_DIRS) if old else []
     except ValueError:old_resolved=[]
@@ -298,6 +311,7 @@ def wizard(api,root):
               and any((r['path'],r.get('member')) in old_keys for r in choices[k])}
     selected=select('Localization inputs / repo SQL trees (SQL/ZIP only; unsupported archives omitted):',[k[0]+('!'+k[1] if k[1] else '') for k in keys],defaults)
     config={'evidence_role':role,'inputs':[]}
+    if 'schema_inputs' in old:config['schema_inputs']=old['schema_inputs']
     if 'evidence_family' in old:
         validate_family(old);config['evidence_family']=old['evidence_family']
     if old.get('alias_role') and role=='primary':config['alias_role']=old['alias_role']
@@ -332,6 +346,8 @@ def command(api,args):
         path=root/'source.json'
         config=json.loads(path.read_text(encoding='utf-8'))
         result={'source_path':str(root),'config':config,'resolved_inputs':resolve_config(root,config,api.SKIP_DIRS),'evidence_role':config['evidence_role']}
+        import schema_inputs
+        result['resolved_schema_inputs']=schema_inputs.resolve(root,config,api.SKIP_DIRS)
     else:
         try:return wizard(api,root)
         except (KeyboardInterrupt,EOFError):print('Отменено; source.json не изменён.');return 130

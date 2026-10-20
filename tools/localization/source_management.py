@@ -32,6 +32,8 @@ def validate_source(api, directory):
             row.update(role=config.get('evidence_role'),family=config.get('evidence_family'),
                        selection='explicit' if 'inputs' in config else 'legacy')
         resolved=source_setup.resolve_config(directory,config,api.SKIP_DIRS)
+        import schema_inputs
+        row['resolved_schema_inputs']=schema_inputs.resolve(directory,config,api.SKIP_DIRS)
         row['resolved_inputs']=resolved;row['inputs']=len(resolved)
         if not resolved and row['role']!='code_schema':error(row,'Empty resolved input set')
         if row['role']=='code_schema':
@@ -136,6 +138,7 @@ def command(api,args):
             for row in report['sources']:
                 print(row['source']+': resolved inputs')
                 for item in row['resolved_inputs']:print('  '+item['path']+('!'+item['member'] if item.get('member') else '')+' ['+item['dataset_role']+']')
+                for item in row.get('resolved_schema_inputs',[]):print('  '+item['path']+('!'+item['member'] if item.get('member') else '')+' [schema_only]')
         print('Locale datasets: выбранные SQL/ZIP streams с dataset_role world/hotfixes; legacy unknown не считается подтверждённым.')
     if not getattr(args,'json',False):
         for row in report['sources']:
