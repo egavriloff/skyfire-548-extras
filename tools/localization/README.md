@@ -1015,3 +1015,34 @@ state. The current `approve-review`/`publish` flow does not accept or merge this
 AI layer, and it never writes to `localizations/`. `ai-coverage` revalidates in
 memory and prints current eligible/imported/valid/invalid field counts without
 creating new artifacts. Keep all AI artifacts local and gitignored.
+
+### Corpus terminology and AI review diagnostics
+
+AI requests include `context.terminology`: exact whole-field English/ruRU pairs
+from accepted index decisions, with English proof, role/config fingerprints and
+raw provenance. Short creature names/subnames, item/gameobject names and POI
+names are searched using exact phrase boundaries. Conflicting, unsupported and
+ambiguous terms are excluded; repeated terms with competing accepted translations
+are also withheld. This is not automatic bilingual word alignment. Terms stored
+only in client data are not invented when the indexed corpus lacks evidence.
+Use the supplied canonical term instead of inventing a transliteration.
+
+`context.quality` marks recognized suspicious/debug/truncated source patterns as
+`source_suspicious` / `needs_review`. Such input must be reviewed, not repaired or
+automatically translated; AI validation blocks it with `SOURCE_SUSPICIOUS`.
+This detector is deliberately incomplete and cannot prove source correctness.
+
+AI validation also reports advisory `semantic_qa` diagnostics for missing exact
+glossary forms, capitalized terms without evidence, Latin fragments and inconsistent
+translations of identical English within a batch. These signals need human review:
+inflection can legitimately change a glossary form, capitalized words are not always
+proper names, and diagnostics do not establish semantic equivalence. They do not
+change donor votes, identity or export decisions. Token validation remains required.
+
+The glossary diagnostic recognizes whole Russian phrases case-insensitively within
+compound translations. A missing surface form is reported as
+`terminology_form_unverified` with `severity: advisory`, `blocking: false` and
+`needs_review: false`, rather than claiming that canonical terminology was lost.
+Inflected forms are not verified through suffix stripping or guessed morphology;
+this advisory does not change import validation or automatic acceptance. English
+term matching, raw glossary evidence and all donor policies remain unchanged.

@@ -10,6 +10,7 @@ import sqlite3
 import tempfile
 
 import ai_tokens
+import ai_context
 
 KINDS = tuple(sorted(('quest', 'creature', 'gameobject', 'npc_text', 'creature_text')))
 VERSION = 1
@@ -199,7 +200,7 @@ def requests(api, conn, locale, entity=None):
                                  'context': {'locale': locale, 'target': TARGET, 'target_base': target_context(api, view, kind, key, base, field),
                                              'target_fingerprint': base_fingerprint(base), 'english_provenance': {k:v for k,v in english.items() if k!='value'},
                                              'donor_field_status': 'MISSING', 'contract_version': VERSION}})
-    return sorted(rows, key=order), dict(sorted(blocked.items()))
+    return ai_context.enrich(api, conn, sorted(rows, key=order), locale), dict(sorted(blocked.items()))
 
 
 def export_requests(api, conn, directory, locale, entity=None):
@@ -305,6 +306,8 @@ def validate_results(api, conn, directory, locale):
                 reason = 'STALE_TARGET_CONTEXT'
             elif reason:
                 pass
+            elif ai_context.suspicious(request['english'])['needs_review']:
+                reason = 'SOURCE_SUSPICIOUS'
             elif not row['translation'].strip():
                 reason = 'EMPTY_TRANSLATION'
             elif any(ord(c) < 32 and c not in '\n\t' for c in row['translation']) or '\ufffd' in row['translation']:
@@ -318,10 +321,12 @@ def validate_results(api, conn, directory, locale):
                 if not contract['valid']:
                     reason = 'TOKEN_CONTRACT_FAILED'
             results.append({**row, 'status': 'INVALID' if reason else 'VALID', 'reason': reason or 'VALID',
+                            'semantic_qa': ai_context.semantic_qa(request, row['translation']) if request else [],
                             'token_validation': contract, 'target_english': english,
                             'locale': locale})
     counts = Counter(row['reason'] for row in results)
     return {'version': VERSION, 'locale': locale, 'target': TARGET, 'layer': 'ai_custom', 'approved': False,
+            'semantic_qa': ai_context.batch_qa(list(ledger.values()), [r for r in results if identity(r) in ledger]),
             'source_evidence': api.evidence_roles.profile(conn), 'summary': {'submitted': len(results), 'valid': counts['VALID'],
             'invalid': len(results) - counts['VALID'], 'reasons': dict(sorted(counts.items()))}, 'results': results}
 
