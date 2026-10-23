@@ -3453,7 +3453,17 @@ def command_publish(args: argparse.Namespace) -> int:
         output = ROOT / 'localizations' / args.locale
         if ROOT.resolve() not in output.resolve().parents:
             raise ValueError('Publication output must stay inside this repository')
-        result = publishing.publish(directory, output, args.locale, args.entity_types, SPECS, LOCALES)
+        import ai_publishing
+        if args.ai_only and (not args.include_ai or args.entity_types):
+            raise ValueError('--ai-only requires --include-ai and no entity selection')
+        ai_layer = None
+        if args.include_ai:
+            with closing(sqlite3.connect(INDEX.resolve().as_uri() + '?mode=ro', uri=True)) as conn:
+                ai_layer = ai_publishing.prepare(sys.modules[__name__], conn, ai_fallback.location(sys.modules[__name__], args.locale), args.locale)
+        if args.ai_only:
+            result = ai_publishing.publish_existing(output, args.locale, SPECS, ai_layer)
+        else:
+            result = publishing.publish(directory, output, args.locale, args.entity_types, SPECS, LOCALES, ai_layer=ai_layer)
     print(json.dumps(result,ensure_ascii=False,sort_keys=True))
     return 0
 
@@ -3503,6 +3513,8 @@ def parser() -> argparse.ArgumentParser:
             q.add_argument('--acknowledge-skipped', action='store_true', help='Explicitly acknowledge conflicts/skips in the reviewed report')
         else:
             q.add_argument('entity_types', nargs='*', choices=tuple(SPECS))
+            q.add_argument('--include-ai', action='store_true', help='Revalidate and publish the separate VALID-only AI/custom layer')
+            q.add_argument('--ai-only', action='store_true', help='Retain verified published donor SQL; publish only the AI layer and metadata')
     q = sub.add_parser("export-all", help="Export safe target translations and a review report")
     q.add_argument("entity_type", nargs="?", choices=tuple(SPECS))
     q.add_argument("--locale", required=True, choices=tuple(code for code in LOCALES if code != "enUS"))

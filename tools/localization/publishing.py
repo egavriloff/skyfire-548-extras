@@ -146,7 +146,7 @@ def coverage_readme(locale: str, target: str, summaries: dict) -> str:
     return '\n'.join(lines)
 
 
-def publish(directory: Path, output: Path, locale: str, kinds: list[str] | None, specs: dict, locales: dict) -> dict:
+def publish(directory: Path, output: Path, locale: str, kinds: list[str] | None, specs: dict, locales: dict, ai_layer=None) -> dict:
     bundle_path, bundle = read_bundle(directory, locale)
     receipt_path = directory / f'approved-{locale}.json'
     if not receipt_path.is_file():
@@ -171,6 +171,8 @@ def publish(directory: Path, output: Path, locale: str, kinds: list[str] | None,
     if (not isinstance(manifest,dict) or manifest.get('locale') != locale or manifest.get('version') != 1
             or not isinstance(manifest.get('entities'),dict)):
         raise ValueError('Existing publication manifest is incompatible')
+    import ai_publishing
+    ai_publishing.retained_files(output, manifest)
     # Validate all selected inputs before replacing any final file.
     with tempfile.TemporaryDirectory(dir=directory.parent) as temporary:
         staging = Path(temporary)
@@ -245,12 +247,18 @@ def publish(directory: Path, output: Path, locale: str, kinds: list[str] | None,
         files['README.md'] = readme
         manifest['files'] = {name: sha for value in manifest['entities'].values() for name, sha in value['files'].items()}
         manifest['files']['README.md'] = digest(readme)
+        if ai_layer is not None:
+            ai_publishing.stage_layer(staging, files, manifest, ai_layer)
+        ai_publishing.complete(staging, files, manifest)
         write_json(staging / 'manifest.json', manifest)
         files['manifest.json'] = staging / 'manifest.json'
         for name in files:
+            if (output / 'custom').is_symlink():
+                raise ValueError('Unsafe publication custom directory')
             dest = output / name
-            if dest.is_symlink() or dest.resolve().parent != output.resolve():
+            if dest.is_symlink() or output.resolve() not in dest.resolve().parents:
                 raise ValueError(f'Unsafe publication destination: {dest}')
         for name, stage in files.items():
+            (output / name).parent.mkdir(parents=True, exist_ok=True)
             stage.replace(output / name)
     return {'entities':selected,'skipped_acknowledged':skipped,'files':sorted(files)}

@@ -12,3 +12,9 @@ nonempty values. End users do not need Python, externals/ or .tmp/.
 
 A locale directory containing only .gitkeep has no published SQL yet. Development
 review and smoke-test files are never shipped here automatically.
+
+An optional `custom/` directory contains a separate AI-generated fallback layer.
+Apply root donor SQL first, then custom SQL, following `application_order` in the
+locale manifest. Both layers fill empty fields only. AI provenance and validation
+counts are in `custom/manifest.json`; mechanical validity is not a guarantee of
+linguistic quality. The locale README reports donor coverage and AI fields separately.

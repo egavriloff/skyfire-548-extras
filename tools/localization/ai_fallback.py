@@ -346,6 +346,12 @@ def sql_statement(api, row, locale):
             f"ON DUPLICATE KEY UPDATE `{column}`=IF(`{column}` IS NULL OR `{column}`='',VALUES(`{column}`),`{column}`);")
 
 
+def custom_sql_text(api, kind, locale, rows):
+    """Stable staging SQL shared with the publication integrity check."""
+    text = f'-- SkyFire 5.4.8 {locale} AI/custom fallback. UNREVIEWED.\n-- See manifest.json for provenance; apply donor SQL first.\n'
+    return text + ''.join(sql_statement(api, row, locale) + '\n' for row in sorted(rows, key=order))
+
+
 def custom_sql(api, directory, locale, report):
     output = directory / 'custom'
     if directory.resolve() not in output.resolve().parents:
@@ -353,8 +359,7 @@ def custom_sql(api, directory, locale, report):
     files, entries = {}, []
     for kind in KINDS:
         rows = [r for r in report['results'] if r['entity'] == kind and r['status'] == 'VALID']
-        text = '-- SkyFire 5.4.8 ruRU AI/custom fallback. UNREVIEWED.\n-- See manifest.json for provenance; apply donor SQL first.\n'
-        text += ''.join(sql_statement(api, row, locale) + '\n' for row in sorted(rows, key=order))
+        text = custom_sql_text(api, kind, locale, rows)
         path = output / (kind + '.sql'); atomic(path, text)
         files[path.name] = api.publishing.digest(path)
         entries.extend(rows)

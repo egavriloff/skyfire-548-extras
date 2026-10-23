@@ -45,7 +45,11 @@ ordering. Never silently choose a preferred conflicting translation.
 
 External AI fallback is an optional, separate offline layer documented in the
 toolkit README. It stages only MISSING target fields, never becomes a donor vote,
-and does not approve, publish or merge its custom SQL into donor bundles.
+and never becomes donor evidence or merges into donor SQL. Explicit
+`publish --include-ai` promotes a separately validated custom layer. With
+`--ai-only`, retain and verify the existing approved donor publication rather than
+approving a newer review. Follow the canonical CLI guide for integrity checks and
+donor-before-custom installation order.
 
 ## Approve and publish
 

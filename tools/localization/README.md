@@ -1011,10 +1011,48 @@ statements. Repeating unchanged inputs produces byte-identical output.
 Review the custom SQL and manifest separately. Apply reviewed donor SQL before
 any reviewed AI layer; never apply an obsolete custom bundle after changing the
 index/donor review. Validation uses the existing index snapshot, not live DB
-state. The current `approve-review`/`publish` flow does not accept or merge this
-AI layer, and it never writes to `localizations/`. `ai-coverage` revalidates in
-memory and prints current eligible/imported/valid/invalid field counts without
-creating new artifacts. Keep all AI artifacts local and gitignored.
+state. `ai-coverage` revalidates in memory and prints current
+eligible/imported/valid/invalid field counts without creating new artifacts.
+Requests, imports, validation and development custom SQL remain gitignored.
+
+### Explicit AI publication
+
+Donor-only `publish` remains the default. To explicitly promote the separate AI
+layer alongside an approved donor review:
+
+```sh
+python tools/localization/localize.py ai-validate --locale ruRU --write-sql
+python tools/localization/localize.py publish --locale ruRU --include-ai
+```
+
+`ai-validate` returns nonzero when excluded invalid records exist, but still writes
+VALID-only custom SQL. Inspect its summary and exclusions before publishing.
+Publication revalidates eligibility against the existing read-only index and checks
+staged SQL bytes, request/import hashes, entries, exclusions and provenance against
+the current result. Stale, missing or changed staging inputs fail. No AI field
+becomes a donor vote, resolves a donor conflict or overwrites a nonempty target.
+The SQL also guards base English using binary equality when applied manually.
+
+If the donor review is newer than its approval, do not reapprove it just to ship
+AI. Retain the already published, hash-verified donor snapshot instead:
+
+```sh
+python tools/localization/localize.py publish --locale ruRU --include-ai --ai-only
+```
+
+`--ai-only` requires an existing intact donor publication and cannot be combined
+with entity selection. It never reads or approves a newer donor review. Without
+`--ai-only`, the normal donor review approval is still mandatory.
+
+Published AI SQL lives in `localizations/<locale>/custom/<entity>.sql`, separate
+from root donor files. `custom/manifest.json` contains VALID field provenance,
+English hashes, validation counters and exclusion counts. Invalid records never
+appear in SQL or the published entries. The root manifest lists all file hashes
+and `application_order`: root donor SQL first, then custom SQL. The locale README
+keeps donor coverage separate from AI field counts. An ordinary donor-only publish
+preserves an existing verified AI layer. Repeated publication is byte-identical;
+there are no timestamps, appended SQL duplicates or live database operations.
+Explicit promotion is not a guarantee of linguistic quality.
 
 ### Corpus terminology and AI review diagnostics
 
