@@ -37,3 +37,24 @@ python tools/localization/localize.py coverage --locale ruRU --verbose
 
 That command reads the local review workspace, which may be newer than this
 publication. This README is a fixed summary of the published SQL bundle.
+
+## Separate AI fallback layer
+
+The donor coverage above excludes AI-generated fields. This optional layer
+contains only mechanically VALID translations, with separate provenance in
+`custom/manifest.json`. Validation does not guarantee linguistic quality.
+
+| Entity | AI fields |
+| --- | ---: |
+| creature | 85 |
+| creature_text | 94 |
+| gameobject | 430 |
+| npc_text | 42 |
+| quest | 728 |
+| TOTAL | 1,379 |
+
+Excluded invalid AI fields: 53.
+
+Apply the root donor SQL first, then the SQL under `custom/`. The exact
+file sequence and hashes are recorded in `manifest.json` as
+`application_order` and `files`. Existing nonempty values remain protected.

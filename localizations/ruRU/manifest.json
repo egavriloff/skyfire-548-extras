@@ -1,4 +1,24 @@
 {
+  "application_order": [
+    "achievement_reward.sql",
+    "creature.sql",
+    "creature_text.sql",
+    "db_script_string.sql",
+    "gameobject.sql",
+    "gossip_menu_option.sql",
+    "item.sql",
+    "npc_text.sql",
+    "page_text.sql",
+    "points_of_interest.sql",
+    "quest.sql",
+    "quest_objective.sql",
+    "skyfire_string.sql",
+    "custom/creature.sql",
+    "custom/creature_text.sql",
+    "custom/gameobject.sql",
+    "custom/npc_text.sql",
+    "custom/quest.sql"
+  ],
   "entities": {
     "achievement_reward": {
       "exception_flags_location": "manifest.provenance_comments",
@@ -3546,10 +3566,16 @@
     }
   },
   "files": {
-    "README.md": "98c6a104e21053c93887155d6a27523b4b12f88f7c828ec9fff095615e9e6dfc",
+    "README.md": "737b15a0201ca61c9f3a1755f5b1eb6cc3ae1ef321a1ef5f12027c03dbc7120d",
     "achievement_reward.sql": "28b1c3232601194c556dbd4df141473791d85979f0a92e4308922c71c6adb62a",
     "creature.sql": "78483a0a451d6a8bf9322902b59cfc9aba4b42864e1ab0b6e322c39206c35a07",
     "creature_text.sql": "9ffe10de9d24a4e36dbf80605d41ac85b83ab29fde131c220ace173c712b72fc",
+    "custom/creature.sql": "a107d3042ab16a52f65016e783e8dbd0016b65a74b0f7e18b70797edcb1f92ce",
+    "custom/creature_text.sql": "a1c21e5b4dceabe405ccb119e5a5398d0dfc18c7528e5104fb24aaae03fd1000",
+    "custom/gameobject.sql": "51bcd51282ec741de1f37e1950786991b87a3d3cee979ee93011f8158929f0ee",
+    "custom/manifest.json": "a9206ed89e53e09ffae6abb26d77bd667f5428f674ecfb6904f1929fd16b4011",
+    "custom/npc_text.sql": "4b9f9c493b62dbae2467ee36e33cf09204e77c91de74254cc5bc2a7ae313b7ac",
+    "custom/quest.sql": "e2de41feb3aea3f458e3970342dce6d38f5e1fa294e9b84844ca2a9fe344346c",
     "db_script_string.sql": "86b811f69098d6e3df665703301b6d6bc424c67869b161b7b311d07306977f02",
     "gameobject.sql": "646c981f1f1d80b3bf8a928f20fe1d0ccb42fc6005a8d419e2b6c3832ab52d2c",
     "gossip_menu_option.sql": "9004e7369d215d5f287601b8d38ad31dd67aa8f320125c5c74431d18ad5cd338",
@@ -3560,6 +3586,36 @@
     "quest.sql": "b320a1bb1c299cc3ba00c8450d30ead1b18c6dbed1b6c1e90e57927b8918d49c",
     "quest_objective.sql": "02a9d5edb83826dba839623f4e37d0750a403afbbdb9787592380b1741610b82",
     "skyfire_string.sql": "ee4923667c66070ef72b17729cda75d848251df24a5b8c53209f956436552213"
+  },
+  "layers": {
+    "ai_custom": {
+      "donor_evidence": false,
+      "fields_by_entity": {
+        "creature": 85,
+        "creature_text": 94,
+        "gameobject": 430,
+        "npc_text": 42,
+        "quest": 728
+      },
+      "files": {
+        "custom/creature.sql": "a107d3042ab16a52f65016e783e8dbd0016b65a74b0f7e18b70797edcb1f92ce",
+        "custom/creature_text.sql": "a1c21e5b4dceabe405ccb119e5a5398d0dfc18c7528e5104fb24aaae03fd1000",
+        "custom/gameobject.sql": "51bcd51282ec741de1f37e1950786991b87a3d3cee979ee93011f8158929f0ee",
+        "custom/manifest.json": "a9206ed89e53e09ffae6abb26d77bd667f5428f674ecfb6904f1929fd16b4011",
+        "custom/npc_text.sql": "4b9f9c493b62dbae2467ee36e33cf09204e77c91de74254cc5bc2a7ae313b7ac",
+        "custom/quest.sql": "e2de41feb3aea3f458e3970342dce6d38f5e1fa294e9b84844ca2a9fe344346c"
+      },
+      "provenance_manifest": "custom/manifest.json",
+      "summary": {
+        "invalid": 53,
+        "reasons": {
+          "SOURCE_SUSPICIOUS": 53,
+          "VALID": 1379
+        },
+        "submitted": 1432,
+        "valid": 1379
+      }
+    }
   },
   "locale": "ruRU",
   "target": "SkyFire 5.4.8 World DB",
