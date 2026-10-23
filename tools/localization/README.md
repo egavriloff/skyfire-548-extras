@@ -1046,3 +1046,41 @@ compound translations. A missing surface form is reported as
 Inflected forms are not verified through suffix stripping or guessed morphology;
 this advisory does not change import validation or automatic acceptance. English
 term matching, raw glossary evidence and all donor policies remain unchanged.
+
+For quest requests, exact terminology is searched across accepted creature
+names/subnames, item names, gameobject names and POI labels, including single-word
+labels inside quest text. These fields can supply faction or place names when the
+corpus contains an accepted complete English/ruRU pair. Quest titles and complete
+accepted quest text fields are also reusable hints, including accepted fields of
+a PARTIAL quest. A conflicting or unsupported field never supplies terminology.
+Long quest hints are complete field pairs, not guessed bilingual sentence or word
+alignment. For example, a surname is not extracted from a longer translated NPC
+name without an independent complete-field pair for that surname.
+
+English matching is exact and case-sensitive with word boundaries. Competing
+accepted translations of the same English label remain ambiguous. Non-quest
+request catalogs keep their original selection rules. Enrichment preserves an
+existing quest `context.quality` hold and never changes the English/hash, donor
+votes, import validation or automatic acceptance. Glossary hits indicate available
+context, not proof that every name in a request can be translated safely. Enriching
+an old request snapshot should use a separate artifact; do not silently replace a
+hash-bound request ledger or existing responses.
+
+Quest review analysis can use `quest_ai_review.candidates` to distinguish ordinary
+sentence openers/contractions from likely named entities. Isolated uppercase words
+need additional lexical or syntactic clues; compound names, apostrophe names,
+previously identified domain terms and exact accepted hints are retained. The
+read-only target English entity lexicon is a candidate clue, not translation
+proof, and never adds glossary pairs. Candidate cleanup only changes advisory
+analysis; it does not clear source-quality, semantic-context or token holds and
+never changes import/acceptance or donor policies.
+
+Gameobject AI context can use `ai_gameobject_context.enrich` for an independent
+request snapshot. It reuses exact accepted whole-field glossary pairs across
+objects, creatures, items, quests, POI and compatible NPC text fields. Generic
+object vocabulary (doors, chests, labels and action captions) does not become a
+canonical-name blocker merely because it is capitalized. Placeholder/debug and
+malformed model labels are held for review. Raw English, hashes and existing
+quality holds are preserved; no fuzzy name inference or substring translation
+alignment is performed. Context generation does not import translations, mutate
+the production index or change donor/acceptance policies.

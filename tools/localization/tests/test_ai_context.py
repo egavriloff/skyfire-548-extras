@@ -136,3 +136,77 @@ class AIContextTests(unittest.TestCase):
         note = next(f for f in result['semantic_qa'] if f['reason'] == 'terminology_form_unverified')
         self.assertFalse(note['blocking'])
         self.assertFalse(note['needs_review'])
+
+    def quest_term(self, key=90, **fields):
+        base = {'id':key, 'title':'Example', 'objectives':'', 'details':'', 'minlevel':1, 'method':2, 'type':0, 'zoneorsort':1}
+        base.update({f:v[0] for f,v in fields.items()})
+        self.base('quest',base)
+        self.base('quest',base,'source-a')
+        l.persist_locale(self.c,'source-a','quest',str(key),'ruRU',
+                         {f:v[1] for f,v in fields.items()},'locale.sql',20)
+
+    def quest_hints(self, text):
+        request = {'entity':'quest','key':3,'field':'details','english':text,
+                   'context':{'target_base':{}}}
+        return ctx.enrich(l,self.c,[request],'ruRU')[0]['context']
+
+    def test_quest_cross_entity_single_word_exact_term(self):
+        self.add_term('Страж',name='Guard')
+        hints = self.quest_hints('Speak to Guard.')['terminology']
+        self.assertEqual([(t['english'],t['ruRU']) for t in hints],[('Guard','Страж')])
+        self.assertEqual(hints[0]['evidence'][0]['entity'],'creature')
+        self.assertEqual(self.quest_hints('Speak to Guardian.')['terminology'],[])
+        self.assertEqual(self.quest_hints('Speak to guard.')['terminology'],[])
+
+    def test_quest_cross_entity_item_gameobject_title_subname(self):
+        self.base('gameobject',{'entry':2,'name':'Example City','type':3,'displayid':10},'source-a')
+        self.base('gameobject',{'entry':2,'name':'Example City','type':3,'displayid':10})
+        l.persist_locale(self.c,'source-a','gameobject','2','ruRU',{'name':'Примерный город'},'locale.sql',20)
+        item={'entry':7,'name':'Example Relic','description':'','class':0,'subclass':0}
+        self.base('item',item);self.base('item',item,'source-a')
+        l.persist_locale(self.c,'source-a','item','7','ruRU',{'name':'Примерная реликвия'},'locale.sql',20)
+        creature={'entry':99,'name':'Example Citizen','subname':'Example Faction','type':7,'unit_class':1,'family':0,'rank':0}
+        self.base('creature',creature);self.base('creature',creature,'source-a')
+        l.persist_locale(self.c,'source-a','creature','99','ruRU',{'name':'Примерный житель','subname':'Примерная фракция'},'locale.sql',20)
+        terms={t['english'] for t in self.quest_hints('Bring Example Relic to Example Citizen of Example Faction in Example City.')['terminology']}
+        self.assertEqual(terms,{'Example Relic','Example Citizen','Example Faction','Example City'})
+
+    def test_quest_title_and_whole_accepted_text_fragment(self):
+        fragment = 'This complete accepted sentence is reused verbatim within a longer dialogue. ' * 2
+        self.quest_term(title=('Example Journey','Примерное путешествие'),
+                        requestitemstext=(fragment,'Подтверждённая реплика.'))
+        hints=self.quest_hints('Recall Example Journey. '+fragment+' Then return.')['terminology']
+        self.assertEqual({t['english'] for t in hints},{'Example Journey',fragment})
+        self.assertEqual(self.quest_hints('This complete accepted sentence is reused.')['terminology'],[])
+
+    def test_quest_partial_uses_accepted_field_never_conflicting_field(self):
+        self.quest_term(title=('Example City','Примерный город'),details=('Different accounts.','Первый вариант.'))
+        base={'id':90,'title':'Example City','objectives':'','details':'Different accounts.','minlevel':1,'method':2,'type':0,'zoneorsort':1}
+        self.base('quest',base,'source-b')
+        l.persist_locale(self.c,'source-b','quest','90','ruRU',{'title':'Примерный город','details':'Второй вариант.'},'locale.sql',20)
+        hints=self.quest_hints('Example City. Different accounts.')['terminology']
+        self.assertEqual([t['english'] for t in hints],['Example City'])
+
+    def test_quest_unproved_names_not_extracted_from_longer_term(self):
+        self.add_term('Капитан Пример',name='Captain Example')
+        self.assertEqual(self.quest_hints('Speak to Example.')['terminology'],[])
+
+    def test_quest_conflict_and_missing_identity_excluded(self):
+        self.add_term();self.add_term('Охранник',source='source-b')
+        self.assertEqual(self.quest_hints('Speak to Guard.')['terminology'],[])
+        self.c.execute("DELETE FROM entities WHERE source!='target' AND entity='99'")
+        self.assertEqual(self.quest_hints('Speak to Guard.')['terminology'],[])
+
+    def test_quest_enrichment_preserves_review_flags_hash_and_other_entities(self):
+        self.add_term()
+        quest={'entity':'quest','key':3,'field':'details','english':'Meet Guard.',
+               'english_hash':ai.digest('Meet Guard.'),'context':{'quality':{'needs_review':True,'reasons':['manual_hold']}}}
+        creature={'entity':'creature','key':1,'field':'name','english':'Guard','context':{}}
+        before=copy.deepcopy(quest)
+        alone=ctx.enrich(l,self.c,[creature],'ruRU')[0]
+        combined=ctx.enrich(l,self.c,[quest,creature],'ruRU')
+        self.assertEqual(alone,combined[1])
+        self.assertEqual(combined[0]['english_hash'],before['english_hash'])
+        self.assertEqual(combined[0]['context']['quality'],before['context']['quality'])
+        self.assertEqual(quest,before)
+        self.assertEqual(combined,ctx.enrich(l,self.c,[quest,creature],'ruRU'))

@@ -43,7 +43,7 @@ def relevant_text(row):
     return '\n'.join([row['english']] + [v for v in base.values() if isinstance(v, str)])
 
 
-def glossary(api, conn, rows, locale):
+def glossary(api, conn, rows, locale, quest_context=False, additional_fields=None):
     """Read existing index; confirm candidate terms through the unchanged engine."""
     texts = sorted(set(relevant_text(r) for r in rows))
     text_index = defaultdict(set)
@@ -56,15 +56,22 @@ def glossary(api, conn, rows, locale):
             return False
         anchor = min(words, key=lambda w: len(text_index.get(w, ())))
         return any(contains(texts[i], term) for i in text_index.get(anchor, ()))
+    fields_by_kind = dict(TERM_FIELDS)
+    if additional_fields:
+        fields_by_kind.update(additional_fields)
+    if quest_context:
+        # Reuse complete accepted fields, never infer bilingual subphrase alignment.
+        fields_by_kind['quest'] = tuple(sorted(api.SPECS['quest']['wide_fields']))
     candidates = []
     # Stream base rows; only relevant short fields trigger a decision lookup.
-    for kind, fields in sorted(TERM_FIELDS.items()):
+    for kind, fields in sorted(fields_by_kind.items()):
         if kind not in api.SPECS:
             continue
         for key, raw in conn.execute("SELECT entity,fields FROM main.entities WHERE source='target' AND kind=? ORDER BY entity", (kind,)):
             base = json.loads(raw)
             selected = {f: base.get(f) for f in fields if isinstance(base.get(f), str)
-                        and 2 <= len(base[f]) <= 100 and not suspicious(base[f])['needs_review']
+                        and len(base[f]) >= 2 and (kind == 'quest' or len(base[f]) <= 100)
+                        and not suspicious(base[f])['needs_review']
                         and relevant(base[f])}
             if selected:
                 candidates.append((kind, key, selected))
@@ -73,7 +80,7 @@ def glossary(api, conn, rows, locale):
         for kind, key, fields in candidates:
             view.reset_row()
             entry = api.bulk_decision(view, kind, key, locale)[0]
-            if entry['status'] in ('CONFLICT', 'UNSUPPORTED', 'AMBIGUOUS') or entry.get('identity_failed'):
+            if entry.get('identity_failed') or (kind != 'quest' and entry['status'] in ('CONFLICT', 'UNSUPPORTED', 'AMBIGUOUS')):
                 continue
             exported = api.analytics.state(entry)[1]
             for field, english in sorted(fields.items()):
@@ -111,12 +118,19 @@ def glossary(api, conn, rows, locale):
 
 
 def enrich(api, conn, rows, locale):
-    catalog, ambiguous = glossary(api, conn, rows, locale)
+    # Keep the original non-quest catalog and selection isolated from quest hints.
+    catalogs = {}
+    for quest in (False, True):
+        selected = [r for r in rows if (r['entity'] == 'quest') == quest]
+        if selected:
+            catalogs[quest] = glossary(api, conn, selected, locale, quest_context=quest)
     output = copy.deepcopy(rows)
     for row in output:
+        quest = row['entity'] == 'quest'
+        catalog, ambiguous = catalogs[quest]
         text = relevant_text(row)
         matches = [t for t in catalog if contains(text, t['english'])
-                   and (' ' in t['english'] or t['english'] == row['english']
+                   and (quest or ' ' in t['english'] or t['english'] == row['english']
                         or t['english'] in row['context'].get('target_base', {}).values())]
         # A shorter overlapping term can have a different sense (Tank vs Battle Tank).
         row['context']['terminology'] = [t for t in matches if not any(
@@ -124,7 +138,11 @@ def enrich(api, conn, rows, locale):
             for other in matches)]
         row['context']['terminology_ambiguous'] = [t for t in ambiguous if contains(text, t)]
         row['context']['translation_instructions'] = INSTRUCTIONS
-        row['context']['quality'] = suspicious(row['english'])
+        if quest:
+            # Terminology enrichment must never clear an existing review hold.
+            row['context'].setdefault('quality', suspicious(row['english']))
+        else:
+            row['context']['quality'] = suspicious(row['english'])
     return output
 
 
